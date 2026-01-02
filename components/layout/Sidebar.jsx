@@ -14,7 +14,8 @@ import {
   Lock,
   Settings,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ROLES } from '@/lib/roles';
@@ -24,6 +25,7 @@ const menuItems = [
   { name: 'Dashboard', icon: LayoutDashboard, href: '/' },
   { name: 'Team', icon: Users, href: '/team', adminOnly: true },
   { name: 'Marketing', icon: Megaphone, href: '/marketing' },
+  { name: 'Pending Works', icon: ClipboardList, href: '/pending-works' },
   { name: 'Sales', icon: Briefcase, href: '/sales' },
   { name: 'Accounting', icon: Calculator, href: '/accounting', adminOnly: true },
   { name: 'Time Tracker', icon: Clock, href: '/time-tracker' },
@@ -35,11 +37,24 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, profile, signOut, isAdmin, effectiveRole } = useAuth();
 
-  const filteredMenuItems = menuItems.filter(item => !item.adminOnly || isAdmin);
+  if (!user && pathname === '/login') return null;
+
+  const filteredMenuItems = menuItems.filter(item => {
+      // 1. Check Admin Only
+      if (item.adminOnly && !isAdmin) return false;
+      
+      // 2. Check Developer Restrictions
+      if ((effectiveRole === 'Developer' || profile?.role === 'Developer') && !isAdmin) {
+          const hiddenItems = ['Marketing', 'Sales', 'AI Pricing', 'Accounting'];
+          if (hiddenItems.includes(item.name)) return false;
+      }
+      
+      return true;
+  });
 
   return (
-    <aside className="w-64 h-screen bg-[#0a0a0a] border-r border-[#1f1f1f] flex flex-col fixed left-0 top-0 z-50 transition-all duration-300">
-      <div className="p-6">
+    <aside className="w-64 h-[100dvh] bg-black border-r border-[#1f1f1f] flex flex-col fixed left-0 top-0 z-[100] overflow-hidden select-none">
+      <div className="p-6 shrink-0 bg-black/50 backdrop-blur-sm relative z-10">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-green-400 bg-clip-text text-transparent uppercase tracking-tighter">
           Helixtop
         </h1>

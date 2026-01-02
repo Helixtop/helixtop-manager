@@ -14,10 +14,12 @@ import {
   FileText,
   MessageSquare,
   Paperclip,
-  Loader2
+  Loader2,
+  Megaphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 
 export default function EmployeeDashboard() {
   const [selectedTask, setSelectedTask] = useState(null);
@@ -28,10 +30,56 @@ export default function EmployeeDashboard() {
   const [startTime, setStartTime] = useState(null);
   const [statusInput, setStatusInput] = useState('');
   const [submissionLink, setSubmissionLink] = useState('');
+  const [marketingWork, setMarketingWork] = useState([]);
+  const [showMarketingDetails, setShowMarketingDetails] = useState(false);
+
+  const { user } = useAuth();
+
+  // Restore active session
+  const checkActiveSession = async (userId) => {
+      try {
+        const { data, error } = await supabase
+            .from('time_logs')
+            .select('*, tasks(*)')
+            .eq('user_id', userId)
+            .is('end_time', null)
+            .maybeSingle();
+        
+        if (data) {
+            const now = new Date();
+            const start = new Date(data.start_time);
+            const elapsed = Math.floor((now - start) / 1000);
+            
+            if (elapsed >= 3600) {
+                // Auto-stopped while away
+                 await supabase.from('time_logs').update({
+                     end_time: new Date(start.getTime() + 3600000).toISOString(),
+                     duration: 3600
+                 }).eq('id', data.id);
+                 return; 
+            }
+
+            setStartTime(start);
+            setCurrentLogId(data.id);
+            setIsRunning(true);
+            setTime(elapsed);
+            
+            if (data.tasks) {
+                setSelectedTask(Array.isArray(data.tasks) ? data.tasks[0] : data.tasks);
+            }
+        }
+      } catch (err) {
+          console.error("Error restoring session:", err);
+      }
+  };
 
   useEffect(() => {
-    fetchTasks();
-  }, []);
+    if (user) {
+      fetchTasks(user.id);
+      fetchMarketingWork(user.id);
+      checkActiveSession(user.id);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (selectedTask) {
@@ -42,69 +90,138 @@ export default function EmployeeDashboard() {
 
   useEffect(() => {
     let interval;
-    if (isRunning) {
+    if (isRunning && startTime) {
       interval = setInterval(() => {
-        setTime(prev => prev + 1);
+        const now = new Date();
+        const elapsed = Math.floor((now - new Date(startTime)) / 1000);
+        setTime(elapsed);
+
+        if (elapsed >= 3600) {
+            // Auto stop after 1 hour
+            handleStop();
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, startTime]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (userId) => {
+    if (!userId) {
+        console.warn('fetchTasks called without userId'); 
+        return;
+    }
     setLoading(true);
-    console.log('Fetching tasks from Supabase...');
-    
-    // Safety timeout
-    const timeout = setTimeout(() => {
-      setLoading(false);
-      console.warn('Tasks fetch timed out.');
-    }, 10000);
-
     try {
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
+        .eq('assigned_to', userId)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Supabase tasks error:', error);
-        throw error;
-      }
-      console.log('Tasks fetched successfully:', data?.length || 0);
+      if (error) throw error;
       setTasks(data || []);
     } catch (error) {
-      console.error('Error fetching tasks:', error);
+      console.error('Error fetching tasks:', error.message || error);
     } finally {
-      clearTimeout(timeout);
       setLoading(false);
     }
   };
 
-  const startTaskTimer = () => {
-    setIsRunning(true);
-    setStartTime(new Date());
+  const fetchMarketingWork = async (userId) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('marketing_content')
+        .select('*')
+        .eq('assigned_to', userId)
+        .neq('status', 'posted')
+        .order('scheduled_date', { ascending: true });
+
+      if (error) throw error;
+      setMarketingWork(data || []);
+    } catch (error) {
+      console.error('Error fetching marketing work:', error);
+    }
   };
 
-  const stopTaskTimer = async () => {
+  const [currentLogId, setCurrentLogId] = useState(null);
+
+  const startTaskTimer = async () => {
+    try {
+        const now = new Date();
+        setIsRunning(true);
+        setStartTime(now);
+        
+        // Create initial log entry
+        const { data, error } = await supabase
+            .from('time_logs')
+            .insert([{
+                task_id: selectedTask.id,
+                start_time: now.toISOString(),
+                end_time: null,
+                duration: 0,
+                user_id: user.id, // Explicitly ensure user_id is set if RLS doesn't auto-set or for clarity
+                is_paid: false
+            }])
+            .select()
+            .single();
+
+        if (error) throw error;
+        setCurrentLogId(data.id);
+    } catch (error) {
+        console.error('Error starting timer:', error);
+        setIsRunning(false); // Revert on failure
+    }
+  };
+
+
+  const handlePause = async () => {
+    if (!isRunning || !startTime) return;
+    
     setIsRunning(false);
     const endTime = new Date();
     const durationSeconds = Math.floor((endTime - startTime) / 1000);
 
     try {
-      const { error } = await supabase
-        .from('time_logs')
-        .insert([{
-          task_id: selectedTask.id,
-          start_time: startTime.toISOString(),
-          end_time: endTime.toISOString(),
-          duration: durationSeconds,
-        }]);
+      if (currentLogId) {
+          // Update existing log
+          const { error } = await supabase
+            .from('time_logs')
+            .update({
+                end_time: endTime.toISOString(),
+                duration: durationSeconds
+            })
+            .eq('id', currentLogId);
+          
+          if (error) throw error;
+      } else {
+          // Fallback for legacy behavior or if start failed silently
+          const { error } = await supabase
+            .from('time_logs')
+            .insert([{
+              task_id: selectedTask.id,
+              start_time: startTime.toISOString(),
+              end_time: endTime.toISOString(),
+              duration: durationSeconds,
+            }]);
+          if (error) throw error;
+      }
 
-      if (error) throw error;
-      setTime(0);
+      setStartTime(null);
+      setCurrentLogId(null);
     } catch (error) {
-      console.error('Error saving time log:', error);
+      console.error('Error saving time log (pause):', error);
     }
+  };
+
+  const handleStop = async () => {
+    if (isRunning && startTime) {
+        await handlePause(); 
+    }
+    setTime(0);
+    setIsRunning(false);
+    setStartTime(null);
+    setCurrentLogId(null);
   };
 
   const formatTime = (seconds) => {
@@ -134,6 +251,36 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
+      {/* Marketing Notifications */}
+      {marketingWork.length > 0 && (
+         <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+            {marketingWork.map(work => (
+               <a 
+                href="/marketing" 
+                key={work.id}
+                className={cn(
+                  "flex-shrink-0 flex items-center gap-4 px-6 py-4 rounded-2xl border bg-gradient-to-br from-blue-600/10 to-green-600/5 transition-all hover:scale-[1.02] active:scale-[0.98] group shadow-xl",
+                  work.status === 'rejected' ? "border-red-500/30 from-red-500/10" : "border-blue-500/20"
+                )}
+               >
+                  <div className={cn(
+                    "w-10 h-10 rounded-full flex items-center justify-center shadow-lg",
+                    work.status === 'rejected' ? "bg-red-500/20" : "bg-blue-500/20"
+                  )}>
+                    <Megaphone className={cn("w-5 h-5", work.status === 'rejected' ? "text-red-400" : "text-blue-400")} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">New_Work_Detected</p>
+                    <h4 className="font-bold text-sm text-white uppercase tracking-tight">
+                        {work.title} <span className="text-blue-400 text-[10px] ml-1">[{new Date(work.scheduled_date).toLocaleDateString()}]</span>
+                    </h4>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-600 group-hover:translate-x-1 transition-all" />
+               </a>
+            ))}
+         </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center p-40 gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -145,40 +292,63 @@ export default function EmployeeDashboard() {
           <div className="lg:col-span-4 space-y-4">
             <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2">Assigned_Projects</h3>
             <div className="space-y-3">
-              {tasks.map((task) => (
-                <div 
-                  key={task.id}
-                  onClick={() => setSelectedTask(task)}
-                  className={cn(
-                    "p-4 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden shadow-xl",
-                    selectedTask?.id === task.id 
-                      ? "bg-blue-600/10 border-blue-500/30" 
-                      : "bg-[#0a0a0a] border-[#1f1f1f] hover:border-gray-700"
-                  )}
-                >
-                  <div className="flex items-center gap-4 relative z-10">
-                    <div className={cn(
-                      "w-12 h-12 rounded-xl flex items-center justify-center transition-colors shadow-lg",
-                      selectedTask?.id === task.id ? "bg-blue-500/20" : "bg-black group-hover:bg-white/5"
-                    )}>
-                      <Folder className={cn(
-                        "w-6 h-6",
-                        selectedTask?.id === task.id ? "text-blue-400" : "text-gray-600 group-hover:text-gray-400"
-                      )} />
+              {tasks.map((task) => {
+                 const isVerified = task.status === 'verified' || task.status === 'completed';
+                 const isRejected = task.status === 'rejected';
+                 const isSelected = selectedTask?.id === task.id;
+
+                 return (
+                    <div 
+                      key={task.id}
+                      onClick={() => setSelectedTask(task)}
+                      className={cn(
+                        "p-4 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden shadow-xl",
+                        isSelected 
+                          ? "bg-blue-600/10 border-blue-500/30" 
+                          : isVerified 
+                            ? "bg-green-900/5 border-green-500/10 hover:border-green-500/30"
+                            : isRejected 
+                              ? "bg-red-900/5 border-red-500/10 hover:border-red-500/30"
+                              : "bg-[#0a0a0a] border-[#1f1f1f] hover:border-gray-700"
+                      )}
+                    >
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl flex items-center justify-center transition-colors shadow-lg",
+                          isSelected ? "bg-blue-500/20" : 
+                          isVerified ? "bg-green-500/10" :
+                          isRejected ? "bg-red-500/10" :
+                          "bg-black group-hover:bg-white/5"
+                        )}>
+                          <Folder className={cn(
+                            "w-6 h-6",
+                            isSelected ? "text-blue-400" : 
+                            isVerified ? "text-green-400" :
+                            isRejected ? "text-red-400" :
+                            "text-gray-600 group-hover:text-gray-400"
+                          )} />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <h4 className={cn(
+                              "font-bold text-sm truncate transition-colors uppercase tracking-tight",
+                              isSelected ? "text-white" : "text-gray-200 group-hover:text-white"
+                          )}>
+                            {task.title}
+                          </h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                             <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">{task.type}</p>
+                             {isVerified && <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>}
+                             {isRejected && <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>}
+                          </div>
+                        </div>
+                        <ChevronRight className={cn(
+                          "w-4 h-4 transition-all",
+                          isSelected ? "text-blue-400 translate-x-1" : "text-gray-800 group-hover:text-gray-400"
+                        )} />
+                      </div>
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                      <h4 className="font-bold text-sm text-gray-200 truncate group-hover:text-white transition-colors uppercase tracking-tight">
-                        {task.title}
-                      </h4>
-                      <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest mt-0.5">{task.type} • {task.deadline}</p>
-                    </div>
-                    <ChevronRight className={cn(
-                      "w-4 h-4 text-gray-800 transition-all",
-                      selectedTask?.id === task.id ? "text-blue-400 translate-x-1" : "group-hover:text-gray-400"
-                    )} />
-                  </div>
-                </div>
-              ))}
+                 );
+              })}
             </div>
           </div>
 
@@ -205,15 +375,23 @@ export default function EmployeeDashboard() {
                       <p className="text-xl font-mono font-black text-blue-400 tracking-tighter">{formatTime(time)}</p>
                       <p className="text-[8px] text-gray-600 uppercase font-black tracking-widest text-right">Timer_Node_Active</p>
                     </div>
-                    <button 
-                      onClick={isRunning ? stopTaskTimer : startTaskTimer}
-                      className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-xl",
-                        isRunning ? "bg-red-600 text-white shadow-red-600/20" : "bg-blue-600 text-white shadow-blue-600/20"
-                      )}
-                    >
-                      {isRunning ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white ml-0.5" />}
-                    </button>
+                    <div className="flex items-center gap-2">
+                       {!isRunning ? (
+                          <button onClick={startTaskTimer} className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all shadow-lg shadow-blue-600/20">
+                            <Play className="w-5 h-5 fill-white text-white ml-0.5" />
+                          </button>
+                       ) : (
+                          <button onClick={handlePause} className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-500 flex items-center justify-center transition-all shadow-lg shadow-orange-600/20">
+                            <Pause className="w-5 h-5 fill-white text-white" />
+                          </button>
+                       )}
+                       
+                       {(isRunning || time > 0) && (
+                          <button onClick={handleStop} className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-all shadow-lg shadow-red-600/20">
+                            <Square className="w-4 h-4 fill-white text-white" />
+                          </button>
+                       )}
+                    </div>
                   </div>
                 </div>
 
@@ -257,13 +435,21 @@ export default function EmployeeDashboard() {
                           <button 
                             disabled={!statusInput}
                             onClick={async () => {
+                              const timestamp = new Date().toLocaleString();
+                              const newEntry = `[${timestamp}] ${statusInput}`;
+                              const updatedLogs = selectedTask.admin_feedback 
+                                ? `${newEntry}\n${selectedTask.admin_feedback}` 
+                                : newEntry;
+
                               const { error } = await supabase
                                 .from('tasks')
-                                .update({ admin_feedback: statusInput }) // Using feedback or a new column for status? Prompt says dev typed.
+                                .update({ admin_feedback: updatedLogs })
                                 .eq('id', selectedTask.id);
+
                               if (!error) {
-                                setSelectedTask({...selectedTask, admin_feedback: statusInput});
+                                setSelectedTask({...selectedTask, admin_feedback: updatedLogs});
                                 setStatusInput('');
+                                // Refresh tasks to persist sidebar state if needed, though local update handles view
                               }
                             }}
                             className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
@@ -271,9 +457,15 @@ export default function EmployeeDashboard() {
                             Log
                           </button>
                         </div>
-                        <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Active_Status:</p>
-                          <p className="text-xs text-blue-400 mt-1">{selectedTask.admin_feedback || 'Waiting for initial status log...'}</p>
+                        <div className="p-4 rounded-xl bg-white/5 border border-white/5 max-h-32 overflow-y-auto custom-scrollbar">
+                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight sticky top-0 bg-[#161616] pb-2">Operation_Logs:</p>
+                          {selectedTask.admin_feedback ? (
+                              <div className="text-xs text-blue-400 space-y-1 whitespace-pre-line font-mono">
+                                  {selectedTask.admin_feedback}
+                              </div>
+                          ) : (
+                              <p className="text-xs text-gray-600 italic">Waiting for initial status log...</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -302,15 +494,16 @@ export default function EmployeeDashboard() {
                               })
                               .eq('id', selectedTask.id);
                             
+                            
                             if (!error) {
-                              alert('Task submitted for Admin verification.');
-                              fetchTasks();
+                              alert('Work marked as completed. Pending Admin Verification.');
+                              fetchTasks(selectedTask.assigned_to); // Refresh to remove from list if filtered
                               setSelectedTask({...selectedTask, status: 'completed', submission_link: submissionLink});
                             }
                           }}
                           className="w-full py-4 rounded-xl bg-green-600 hover:bg-green-500 text-[10px] font-black transition-all shadow-xl shadow-green-600/20 uppercase tracking-[0.2em] disabled:opacity-50"
                         >
-                          {selectedTask.status === 'completed' ? 'SUBMITTED_FOR_REVIEW' : 'Initialize_Approval_Flow'}
+                          {selectedTask.status === 'completed' ? 'Awaiting_Verification' : 'Mark_As_Completed'}
                         </button>
                       </div>
                     </div>

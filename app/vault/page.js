@@ -25,6 +25,15 @@ import { ROLES } from '@/lib/roles';
 export default function VaultPage() {
   const { profile, isAdmin } = useAuth();
   const [passwords, setPasswords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showPassword, setShowPassword] = useState({});
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    service: '',
+    url: '',
+    email: '',
+    password: ''
+  });
   
   if (!isAdmin) {
     return (
@@ -37,15 +46,6 @@ export default function VaultPage() {
       </div>
     );
   }
-  const [loading, setLoading] = useState(true);
-  const [showPassword, setShowPassword] = useState({});
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({
-    service: '',
-    url: '',
-    email: '',
-    password: ''
-  });
 
   useEffect(() => {
     fetchVault();

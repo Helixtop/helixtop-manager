@@ -75,3 +75,19 @@
 .marketing-calendar .react-calendar__month-view__days__day--neighboringMonth {
   color: #333;
 }
+
+/* Native Date Input Fixes */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(1);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

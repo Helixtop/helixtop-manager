@@ -27,3 +27,18 @@ ALTER TABLE public.working_days ENABLE ROW LEVEL SECURITY;
 -- Drop existing policy if it exists to avoid errors, then recreate
 DROP POLICY IF EXISTS "Full access for authenticated users - Working Days" ON public.working_days;
 CREATE POLICY "Full access for authenticated users - Working Days" ON public.working_days FOR ALL TO authenticated USING (true);
+
+-- Tasks Table Policies for RLS
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+
+-- Allow users to view tasks assigned to them
+DROP POLICY IF EXISTS "Users can view assigned tasks" ON public.tasks;
+CREATE POLICY "Users can view assigned tasks" ON public.tasks 
+FOR SELECT TO authenticated 
+USING (auth.uid() = assigned_to);
+
+-- Allow users to update tasks assigned to them (e.g. status)
+DROP POLICY IF EXISTS "Users can update assigned tasks" ON public.tasks;
+CREATE POLICY "Users can update assigned tasks" ON public.tasks 
+FOR UPDATE TO authenticated 
+USING (auth.uid() = assigned_to);

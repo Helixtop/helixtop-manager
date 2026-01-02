@@ -19,15 +19,17 @@ export default function HeadManagerAI() {
   const fetchAIAudit = async () => {
     setLoading(true);
     try {
-      const { data: pendingTasks } = await supabase
-        .from('tasks')
-        .select('title, deadline, status')
-        .in('status', ['pending', 'in-progress']);
-
-      const { data: unassignedLeads } = await supabase
-        .from('leads')
-        .select('*')
-        .eq('stage', 'ad-leads');
+      const [
+        { data: pendingTasks },
+        { data: unassignedLeads },
+        { data: txs },
+        { data: rejectedContent }
+      ] = await Promise.all([
+        supabase.from('tasks').select('title, deadline, status').in('status', ['pending', 'in-progress']),
+        supabase.from('leads').select('*').eq('stage', 'ad-leads'),
+        supabase.from('transactions').select('*'),
+        supabase.from('marketing_content').select('*').eq('status', 'rejected')
+      ]);
 
       const newReports = [];
       const now = new Date();
@@ -39,7 +41,7 @@ export default function HeadManagerAI() {
           newReports.push({
             type: 'delay',
             icon: Clock,
-            text: `DEVIATION DETECTED: '${task.title}' is PAST DEADLINE. Why is this still in ${task.status}?`,
+            text: `DEVIATION DETECTED: '${task.title}' is PAST DEADLINE.`,
             severity: 'critical'
           });
         }
@@ -50,13 +52,12 @@ export default function HeadManagerAI() {
         newReports.push({
           type: 'task',
           icon: AlertTriangle,
-          text: `RESOURCE WASTE: ${unassignedLeads.length} leads sitting in 'Ad Leads' gathering dust. Assign them NOW.`,
+          text: `RESOURCE WASTE: ${unassignedLeads.length} leads sitting in 'Ad Leads' gathering dust.`,
           severity: 'warning'
         });
       }
 
       // 3. Analyze Accounting Flux
-      const { data: txs } = await supabase.from('transactions').select('*');
       const income = txs?.filter(t => t.type === 'income').reduce((acc, curr) => acc + parseFloat(curr.amount), 0) || 0;
       const expense = txs?.filter(t => t.type === 'expense').reduce((acc, curr) => acc + parseFloat(curr.amount), 0) || 0;
       const profit = income - expense;
@@ -65,18 +66,17 @@ export default function HeadManagerAI() {
         newReports.push({
           type: 'accounting',
           icon: TrendingDown,
-          text: `MARGIN CRISIS: Profit is sitting at ₹${profit.toLocaleString('en-IN')}. Cut the fat or find better leads. NOW.`,
+          text: `MARGIN CRISIS: Profit is sitting at ₹${profit.toLocaleString('en-IN')}.`,
           severity: 'critical'
         });
       }
 
       // 4. Analyze Marketing Rejections
-      const { data: rejectedContent } = await supabase.from('marketing_content').select('*').eq('status', 'rejected');
       if (rejectedContent?.length > 0) {
         newReports.push({
           type: 'marketing',
-          icon: Bot, // Using Bot for person
-          text: `QUALITY FAILURE: ${rejectedContent.length} items REJECTED by Admin. The content team is slacking.`,
+          icon: Bot,
+          text: `QUALITY FAILURE: ${rejectedContent.length} items REJECTED by Admin.`,
           severity: 'warning'
         });
       }

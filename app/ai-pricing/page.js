@@ -6,7 +6,7 @@ import {
   Send, 
   ChevronRight, 
   FileText, 
-  DollarSign, 
+  IndianRupee, 
   Cpu, 
   Zap,
   Target,

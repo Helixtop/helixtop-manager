@@ -3,16 +3,17 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DndContext, 
-  closestCenter,
+  closestCorners,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverlay,
-  defaultDropAnimationSideEffects,
+  // defaultDropAnimationSideEffects, // Not used but imported in original?
+  useDroppable,
+  DragOverlay
 } from '@dnd-kit/core';
 import { 
-  arrayMove, 
+  // arrayMove, // Not used
   SortableContext, 
   sortableKeyboardCoordinates, 
   verticalListSortingStrategy,
@@ -20,13 +21,18 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { 
+  LayoutGrid, 
+  List
+} from 'lucide-react';
+import SalesList from '@/components/sales/SalesList';
+import { 
   Plus, 
   Search, 
-  Filter, 
+  // Filter, // Not used
   MoreHorizontal, 
   Calendar, 
   User, 
-  Phone, 
+  // Phone, // Not used
   Mail,
   Zap,
   CheckCircle2,
@@ -36,7 +42,21 @@ import {
   IndianRupee
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getLeads, createLead, updateLeadStage, closeDeal } from './actions';
+import { getLeads, createLead, updateLeadStage, closeDeal, updateLead, generatePriceEstimate, addPayment } from './actions';
+
+const Confetti = () => (
+  <div className="fixed inset-0 pointer-events-none z-[200] overflow-hidden flex justify-between items-end px-20 pb-0">
+    <div className="relative">
+       <div className="text-[100px] animate-bounce origin-bottom -rotate-12">🎉</div>
+       {/* Simple particle simulation using CSS dots */}
+       <div className="absolute top-0 left-1/2 -ml-1 w-2 h-2 bg-red-500 rounded-full animate-[ping_1s_ease-out_infinite]" />
+       <div className="absolute top-0 left-1/2 ml-4 w-2 h-2 bg-blue-500 rounded-full animate-[bounce_1s_infinite]" />
+    </div>
+    <div className="relative">
+       <div className="text-[100px] animate-bounce origin-bottom rotate-12">🎉</div>
+    </div>
+  </div>
+);
 
 const COLUMNS = [
   { id: 'ad-leads', title: 'Ad Leads', color: 'blue' },
@@ -107,12 +127,52 @@ function LeadCard({ lead, isOverlay }) {
   );
 }
 
+function DroppableColumn({ id, children, className }) {
+  const { setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={className}>
+      {children}
+    </div>
+  );
+}
+
 export default function SalesPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [activeLead, setActiveLead] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [viewMode, setViewMode] = useState('kanban');
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [editFormData, setEditFormData] = useState({});
+  const [isGeneratingPrice, setIsGeneratingPrice] = useState(false);
+  const [selectedLead, setSelectedLead] = useState(null);
+
+
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+
+  useEffect(() => {
+    if (showConfetti) {
+      const timer = setTimeout(() => setShowConfetti(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showConfetti]);
+
+  useEffect(() => {
+    if (selectedLead) {
+        setEditFormData({
+            name: selectedLead.name || '',
+            company: selectedLead.company || '',
+            email: selectedLead.email || '',
+            phone: selectedLead.phone || '',
+            description: selectedLead.description || '',
+            // If contact field was used as fallback
+            contact: selectedLead.contact || '',
+            budget: selectedLead.budget || ''
+        });
+    }
+  }, [selectedLead]);
 
   useEffect(() => {
     fetchLeads();
@@ -154,63 +214,49 @@ export default function SalesPage() {
   const handleDragOver = ({ active, over }) => {
     if (!over) return;
     
-    const activeLead = leads.find(l => l.id === active.id);
+    const activeId = active.id;
     const overId = over.id;
 
-    // Check if dragging over a column or another lead
+    if (activeId === overId) return;
+
+    const activeLead = leads.find(l => l.id === activeId);
+    if (!activeLead) return;
+
+    // Determine the container (stage) being hovered
     const overColumn = COLUMNS.find(c => c.id === overId);
-    
-    if (overColumn && activeLead.stage !== overColumn.id) {
-      if (overColumn.id === 'win') {
-        setSelectedLead(activeLead);
-        setShowWinModal(true);
-      } else {
-        setLeads(prev => prev.map(l => l.id === active.id ? { ...l, stage: overColumn.id } : l));
-        updateLocalAndServerStage(active.id, overColumn.id);
-      }
-    } else {
-      const overLead = leads.find(l => l.id === overId);
-      if (overLead && activeLead.stage !== overLead.stage) {
-        if (overLead.stage === 'win') {
-            setSelectedLead(activeLead);
-            setShowWinModal(true);
-        } else {
-            setLeads(prev => prev.map(l => l.id === active.id ? { ...l, stage: overLead.stage } : l));
-            updateLocalAndServerStage(active.id, overLead.stage);
-        }
-      }
+    const overLead = leads.find(l => l.id === overId);
+    const newStage = overColumn ? overColumn.id : (overLead ? overLead.stage : null);
+
+    if (newStage && activeLead.stage !== newStage) {
+      setLeads(prev => prev.map(l => l.id === activeId ? { ...l, stage: newStage } : l));
     }
   };
 
   const handleDragEnd = ({ active, over }) => {
+    if (over) {
+      const activeId = active.id;
+      const overId = over.id;
+      
+      const activeLead = leads.find(l => l.id === activeId);
+      if (activeLead) {
+        // If it's a 'win', show modal, otherwise update server
+        if (activeLead.stage === 'win') {
+          setShowConfetti(true);
+          updateLocalAndServerStage(activeId, 'win');
+        } else {
+          updateLocalAndServerStage(activeId, activeLead.stage);
+        }
+      }
+    } else {
+      // Revert if dropped outside? Optional, but fetchLeads handles it if server was never updated
+      fetchLeads();
+    }
+
     setActiveId(null);
     setActiveLead(null);
   };
 
-  const [selectedLead, setSelectedLead] = useState(null);
-  const [showWinModal, setShowWinModal] = useState(false);
-  const [winFormData, setWinFormData] = useState({
-    total: '',
-    advance: '',
-    installments: '1',
-    scope: '',
-    assignee: ''
-  });
 
-  const handleWinSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const result = await closeDeal(selectedLead.id, winFormData);
-      
-      if (!result.success) throw new Error(result.error);
-
-      setShowWinModal(false);
-      fetchLeads();
-      alert('Project Win synchronized! Task created and income logged.');
-    } catch (err) {
-      alert('Win sync error: ' + err.message);
-    }
-  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -219,7 +265,29 @@ export default function SalesPage() {
           <h2 className="text-3xl font-bold text-white uppercase tracking-tight">Sales Pipeline</h2>
           <p className="text-gray-500 mt-1 uppercase text-[10px] font-bold tracking-widest">Lead Acquisition Hub</p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+           <div className="flex p-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-xl">
+              <button 
+                onClick={() => setViewMode('kanban')}
+                className={cn(
+                  "p-2 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-tight",
+                  viewMode === 'kanban' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-gray-500 hover:text-gray-300"
+                )}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Kanban
+              </button>
+              <button 
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  "p-2 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-tight",
+                  viewMode === 'list' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-gray-500 hover:text-gray-300"
+                )}
+              >
+                <List className="w-4 h-4" />
+                List
+              </button>
+            </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input 
@@ -243,10 +311,20 @@ export default function SalesPage() {
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           <p className="text-gray-500 font-bold uppercase text-xs tracking-widest">Polling Pipeline...</p>
         </div>
+      ) : viewMode === 'list' ? (
+        <SalesList 
+          leads={leads} 
+          onSelectLead={(lead) => {
+             setSelectedLead(lead);
+             if (lead.stage === 'win') {
+                 // Already a win, just show details
+             }
+          }} 
+        />
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
@@ -268,7 +346,10 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div className="bg-[#0a0a0a]/50 border border-[#1f1f1f]/50 rounded-2xl min-h-[600px] p-3">
+                <DroppableColumn 
+                  id={column.id} 
+                  className="bg-[#0a0a0a]/50 border border-[#1f1f1f]/50 rounded-2xl min-h-[600px] p-3"
+                >
                   <SortableContext
                     id={column.id}
                     items={leads.filter(l => l.stage === column.id).map(l => l.id)}
@@ -280,7 +361,7 @@ export default function SalesPage() {
                         .map((lead) => (
                           <div key={lead.id} onClick={() => {
                             setSelectedLead(lead);
-                            if (lead.stage === 'win' && !showWinModal) {
+                            if (lead.stage === 'win') {
                                 // Already a win, just show details
                             }
                           }}>
@@ -289,7 +370,7 @@ export default function SalesPage() {
                         ))}
                     </div>
                   </SortableContext>
-                </div>
+                </DroppableColumn>
               </div>
             ))}
           </div>
@@ -380,168 +461,189 @@ export default function SalesPage() {
         </div>
       )}
 
-      {/* Win Modal */}
-      {showWinModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-          <form onSubmit={handleWinSubmit} className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-xl rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
-            <div className="p-8 bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border-b border-[#1f1f1f]">
-              <div className="flex items-center gap-4 mb-2">
-                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
-                  <Zap className="w-6 h-6 text-emerald-400" />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black uppercase tracking-tighter text-white">Project Victory</h3>
-                  <p className="text-[10px] text-emerald-400/70 font-black uppercase tracking-[0.3em]">Seal_The_Deal_Protocol</p>
-                </div>
-              </div>
-            </div>
+      {/* Win Modal Removed */}
 
-            <div className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Total Project Value</label>
-                  <div className="relative">
-                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                    <input 
-                      type="number" 
-                      required
-                      value={winFormData.total}
-                      onChange={(e) => setWinFormData({...winFormData, total: e.target.value})}
-                      className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500/50 outline-none font-mono" 
-                      placeholder="0" 
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Advance Payment</label>
-                  <div className="relative">
-                    <CheckCircle2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                    <input 
-                      type="number" 
-                      required
-                      value={winFormData.advance}
-                      onChange={(e) => setWinFormData({...winFormData, advance: e.target.value})}
-                      className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500/50 outline-none font-mono" 
-                      placeholder="0.00" 
-                    />
-                  </div>
-                </div>
-              </div>
+      {/* Confetti Overlay */}
+      {showConfetti && <Confetti />}
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Work Scope / Details</label>
-                <textarea 
-                  required
-                  value={winFormData.scope}
-                  onChange={(e) => setWinFormData({...winFormData, scope: e.target.value})}
-                  className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-sm focus:border-emerald-500/50 outline-none h-24 resize-none" 
-                  placeholder="Describe the final agreed scope..." 
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Allocate Lead Expert</label>
-                <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                    <input 
-                      type="text" 
-                      placeholder="Enter Employee ID or Name"
-                      value={winFormData.assignee}
-                      onChange={(e) => setWinFormData({...winFormData, assignee: e.target.value})}
-                      className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500/50 outline-none" 
-                    />
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 bg-white/5 flex gap-4">
-              <button 
-                type="button"
-                onClick={() => setShowWinModal(false)}
-                className="flex-1 py-4 rounded-2xl border border-[#1f1f1f] text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all text-gray-400"
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit"
-                className="flex-1 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-600/20 text-white"
-              >
-                Confirm_&_Provision_Tasks
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Detail Modal */}
-      {selectedLead && !showWinModal && (
+      {/* Editable Detail Modal */}
+      {/* Editable Detail Modal */}
+      {selectedLead && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-2xl rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-[#1f1f1f] flex justify-between items-start">
-              <div>
-                <h3 className="text-2xl font-black uppercase tracking-tighter">{selectedLead.name}</h3>
-                <div className="flex gap-2 mt-2">
-                   <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase border border-blue-500/20">{selectedLead.type}</span>
-                   <span className="px-2 py-0.5 rounded-full bg-white/5 text-gray-400 text-[9px] font-black uppercase border border-white/10">{selectedLead.stage}</span>
-                </div>
-              </div>
-              <button onClick={() => setSelectedLead(null)} className="p-2 rounded-xl hover:bg-white/5 text-gray-500 transition-all">
-                <XCircle className="w-6 h-6" />
-              </button>
+          <div className="bg-[#09090b] border border-[#27272a] w-full max-w-4xl rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto scrollbar-hide">
+            <div className="sticky top-0 z-10 p-6 border-b border-[#27272a] flex justify-between items-center bg-[#09090b]/95 backdrop-blur">
+               <div>
+                  <h3 className="text-lg font-bold text-white tracking-tight">Lead Details</h3>
+                  <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-widest mt-0.5">Edit_Metadata</p>
+               </div>
+               <button onClick={() => setSelectedLead(null)} className="p-2 rounded-full hover:bg-white/10 text-zinc-400 transition-all">
+                 <XCircle className="w-5 h-5" />
+               </button>
             </div>
             
-            <div className="p-8 grid grid-cols-2 gap-8">
-              <div className="space-y-6">
-                <div>
-                   <h4 className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                     <Mail className="w-3.5 h-3.5" />
-                     Contact_Info
-                   </h4>
-                   <p className="text-sm font-bold text-gray-300">{selectedLead.email || 'No email provided'}</p>
-                   <p className="text-sm font-bold text-gray-300 mt-1">{selectedLead.phone || 'No phone provided'}</p>
-                </div>
-                <div>
-                   <h4 className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                     <Briefcase className="w-3.5 h-3.5" />
-                     Project_Scope
-                   </h4>
-                   <p className="text-xs text-gray-400 leading-relaxed italic">
-                     {selectedLead.description || 'No detailed scope recorded yet.'}
-                   </p>
-                </div>
-              </div>
-              <div className="space-y-6">
-                 <div>
-                   <h4 className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                     <Calendar className="w-3.5 h-3.5" />
-                     Timeline_&_Events
-                   </h4>
-                   {selectedLead.meeting_time ? (
-                     <div className="p-4 rounded-2xl bg-orange-500/5 border border-orange-500/10">
-                        <p className="text-[10px] text-orange-400 font-bold uppercase mb-1">Meeting Booked</p>
-                        <p className="text-sm font-mono font-bold text-gray-200">{new Date(selectedLead.meeting_time).toLocaleString()}</p>
+            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+               {/* Left Column: Basic Info */}
+               <div className="space-y-6">
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Client Name</label>
+                      <input 
+                        value={editFormData.name} 
+                        onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg py-2.5 px-4 text-sm focus:border-blue-500/50 focus:bg-zinc-900 outline-none text-white font-medium transition-all"
+                      />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Company</label>
+                      <input 
+                        value={editFormData.company} 
+                        onChange={e => setEditFormData({...editFormData, company: e.target.value})}
+                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg py-2.5 px-4 text-sm focus:border-blue-500/50 focus:bg-zinc-900 outline-none text-zinc-300 transition-all"
+                        placeholder="Organization Name"
+                      />
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Phone</label>
+                          <input 
+                            value={editFormData.phone} 
+                            onChange={e => setEditFormData({...editFormData, phone: e.target.value})}
+                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg py-2.5 px-4 text-sm focus:border-blue-500/50 focus:bg-zinc-900 outline-none font-mono text-zinc-400 Transition-all"
+                            placeholder="+91..."
+                          />
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Email</label>
+                          <input 
+                            value={editFormData.email} 
+                            onChange={e => setEditFormData({...editFormData, email: e.target.value})}
+                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg py-2.5 px-4 text-sm focus:border-blue-500/50 focus:bg-zinc-900 outline-none font-mono text-zinc-400 Transition-all"
+                            placeholder="client@mail.com"
+                          />
+                       </div>
+                   </div>
+
+                   {/* Financials moved to Left Column bottom or separate? Let's keep it here for balance if Scope is long. 
+                       Actually, let's put Financials on the RIGHT, and Scope on the LEFT (swapped)? 
+                       No, keep Scope prominent. Let's put Financials below Basic Info. */}
+                   
+                   <div className="pt-6 border-t border-zinc-800">
+                     <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <IndianRupee className="w-3 h-3" /> Financial Overview
+                     </h4>
+                     <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                           <div className="space-y-1.5">
+                              <label className="text-[9px] font-bold text-zinc-600 uppercase">Total Budget</label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">₹</span>
+                                <input 
+                                  value={editFormData.budget} 
+                                  onChange={e => setEditFormData({...editFormData, budget: e.target.value})}
+                                  className="w-full bg-black border border-zinc-800 rounded-lg py-2 pl-7 pr-3 text-sm font-mono text-white outline-none focus:border-green-500/50"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                           </div>
+                           <div className="space-y-1.5">
+                              <label className="text-[9px] font-bold text-zinc-600 uppercase">Collected</label>
+                              <div className="w-full bg-green-500/10 border border-green-500/20 rounded-lg py-2 px-3 text-sm font-mono text-green-400">
+                                ₹{(selectedLead.payment_structure?.total_collected || 0).toLocaleString()}
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* Add Payment Mini-Form */}
+                        <div className="flex gap-2 items-center pt-2">
+                           <input 
+                             value={paymentAmount}
+                             onChange={e => setPaymentAmount(e.target.value)}
+                             placeholder="Amt"
+                             className="w-24 bg-black border border-zinc-800 rounded-lg py-2 px-3 text-xs outline-none focus:border-green-500/50 font-mono"
+                             type="number"
+                           />
+                           <input 
+                             value={paymentNote}
+                             onChange={e => setPaymentNote(e.target.value)}
+                             placeholder="Note (e.g. Advance)"
+                             className="flex-1 bg-black border border-zinc-800 rounded-lg py-2 px-3 text-xs outline-none focus:border-green-500/50"
+                           />
+                           <button 
+                             onClick={async () => {
+                               if (!paymentAmount) return;
+                               const { success, totalCombined } = await addPayment(selectedLead.id, paymentAmount, paymentNote);
+                               if (success) {
+                                  alert('Payment recorded.');
+                                  setPaymentAmount('');
+                                  setPaymentNote('');
+                                  const updatedStructure = { ...(selectedLead.payment_structure || {}), total_collected: totalCombined };
+                                  setSelectedLead({ ...selectedLead, payment_structure: updatedStructure });
+                                  fetchLeads();
+                               }
+                             }}
+                             className="h-full px-4 rounded-lg bg-zinc-800 hover:bg-green-600 hover:text-white text-zinc-400 text-[10px] font-bold uppercase transition-all"
+                           >
+                             Log
+                           </button>
+                        </div>
                      </div>
-                   ) : (
-                     <p className="text-xs text-gray-600 font-bold uppercase italic">No meetings scheduled.</p>
-                   )}
-                 </div>
-              </div>
+                   </div>
+               </div>
+
+               {/* Right Column: Project Scope (Full Height) */}
+               <div className="flex flex-col h-full space-y-2">
+                   <div className="flex justify-between items-center mb-1">
+                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Project Scope & Requirements</label>
+                     <button 
+                       onClick={async () => {
+                          if (!editFormData.description) return alert('Enter scope first');
+                          setIsGeneratingPrice(true);
+                          const estimate = await generatePriceEstimate(editFormData.description);
+                          setIsGeneratingPrice(false);
+                          alert(`Suggested: ₹${estimate.price}\nTimeline: ${estimate.timeline}`);
+                       }}
+                       disabled={isGeneratingPrice}
+                       className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[9px] font-bold uppercase hover:bg-purple-500 hover:text-white transition-all"
+                     >
+                       {isGeneratingPrice ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                       AI_Estimate
+                     </button>
+                   </div>
+                   <textarea 
+                     value={editFormData.description} 
+                     onChange={e => setEditFormData({...editFormData, description: e.target.value})}
+                     className="flex-1 w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-5 text-sm text-zinc-300 outline-none focus:border-blue-500/50 resize-none leading-relaxed min-h-[300px]"
+                     placeholder="Detailed project scope, deliverables, and technical requirements..."
+                   />
+               </div>
             </div>
 
-            <div className="p-8 bg-white/5 flex gap-4">
-               <button className="flex-1 py-3 rounded-xl border border-[#1f1f1f] text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all text-gray-400">Edit Details</button>
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-[#27272a] bg-[#09090b]/50">
                {selectedLead.stage !== 'win' && selectedLead.stage !== 'lose' && (
                  <button 
                   onClick={() => {
-                    const reason = prompt('Enter loss reason:');
+                    const reason = prompt('Loss reason?');
                     if (reason) {
                         updateLocalAndServerStage(selectedLead.id, 'lose');
                         setSelectedLead(null);
                     }
                   }}
-                  className="flex-1 py-3 rounded-xl bg-red-600/10 border border-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest hover:bg-red-600/20 transition-all"
-                 > Mark as Lost </button>
+                  className="px-4 py-2 rounded-lg text-red-500 text-xs font-bold uppercase hover:bg-red-500/10 transition-all opacity-60 hover:opacity-100"
+                 > 
+                   Mark as Lost
+                 </button>
                )}
+               <button 
+                  onClick={async () => {
+                     const { success } = await updateLead(selectedLead.id, editFormData);
+                     if (success) {
+                         fetchLeads();
+                         setSelectedLead(null);
+                     }
+                  }}
+                  className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all uppercase tracking-wide"
+               >
+                  Save Changes
+               </button>
             </div>
           </div>
         </div>

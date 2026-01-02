@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  DollarSign, 
+  IndianRupee, 
   ArrowUpRight, 
   ArrowDownRight, 
   Filter, 
@@ -12,7 +12,8 @@ import {
   TrendingUp,
   CreditCard,
   Lock,
-  Loader2
+  Loader2,
+  Plus
 } from 'lucide-react';
 import { 
   BarChart, 

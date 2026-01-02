@@ -11,21 +11,25 @@ import {
   Target,
   Zap,
   UserCircle,
-  Loader2
+  Loader2,
+  Megaphone,
+  ChevronRight
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import StatCard from '@/components/dashboard/StatCard';
-import OverviewChart from '@/components/dashboard/OverviewChart';
 import HeadManagerAI from '@/components/dashboard/HeadManagerAI';
 import EmployeeDashboard from '@/components/dashboard/EmployeeDashboard';
 import { ROLES } from '@/lib/roles';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
-import { getDashboardMetrics } from './actions';
+import { getDashboardMetrics, verifyTask } from './actions';
 
+import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Home() {
   const { profile, isAdmin, effectiveRole } = useAuth();
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const [stats, setStats] = useState({
     totalProjects: 0,
     pendingTasks: 0,
@@ -34,7 +38,10 @@ export default function Home() {
   });
   const [leads, setLeads] = useState([]);
   const [activeEmployees, setActiveEmployees] = useState([]);
+  const [marketingReview, setMarketingReview] = useState([]);
+  const [reviewTasks, setReviewTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     if (isAdmin) {
@@ -45,13 +52,15 @@ export default function Home() {
   const fetchAdminStats = async () => {
     setLoading(true);
     try {
-      const { success, stats, leads, activeEmployees, error } = await getDashboardMetrics();
+      const { success, stats, leads, activeEmployees, marketingReview: mReview, reviewTasks: rTasks, error } = await getDashboardMetrics();
       
       if (!success) throw new Error(error);
 
       setStats(stats);
       setLeads(leads);
       setActiveEmployees(activeEmployees);
+      setMarketingReview(mReview || []);
+      setReviewTasks(rTasks || []);
 
     } catch (error) {
       console.error('Error fetching admin stats:', error);
@@ -72,7 +81,10 @@ export default function Home() {
           <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-sm font-medium">
             Generate Report
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition-all text-sm font-bold text-white shadow-lg shadow-blue-600/20">
+          <button 
+            onClick={() => setShowProjectModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition-all text-sm font-bold text-white shadow-lg shadow-blue-600/20"
+          >
             <Plus className="w-4 h-4" />
             New Project
           </button>
@@ -123,13 +135,117 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Chart */}
+            {/* Task Approval Suite */}
             <div className="lg:col-span-2">
-              <OverviewChart />
+              <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl p-6 shadow-2xl h-full min-h-[400px]">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Task_Approval_Suite</h3>
+                    <p className="text-[10px] text-gray-600 font-black uppercase tracking-[0.2em] mt-1">Audit_Protocol_Active</p>
+                  </div>
+                  {(reviewTasks.length > 0 || marketingReview.length > 0) && (
+                    <span className="px-3 py-1 rounded-full bg-blue-600/10 border border-blue-500/20 text-[10px] font-black text-blue-400 uppercase tracking-widest animate-pulse">
+                      {reviewTasks.length + marketingReview.length} Pending_Audits
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                  {/* Marketing Review Items */}
+                  {marketingReview.map((item) => (
+                    <div key={item.id} className="p-6 bg-orange-600/5 border border-orange-500/20 rounded-2xl group hover:border-orange-500/40 transition-all cursor-pointer" onClick={() => router.push('/marketing')}>
+                      <div className="flex justify-between items-start gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 text-[8px] font-black uppercase tracking-tighter flex items-center gap-1">
+                              <Megaphone className="w-3 h-3" />
+                              Marketing_Content
+                            </span>
+                            <h4 className="font-bold text-gray-200 group-hover:text-white transition-colors">{item.title}</h4>
+                          </div>
+                          <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-4">Awaiting Review • {item.platform}</p>
+                          
+                          <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-widest text-gray-600">
+                            <span className="flex items-center gap-2">
+                              <UserCircle className="w-3.5 h-3.5 text-orange-500/50" />
+                              {item.profiles?.full_name || 'Assigned Creator'}
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-orange-800 group-hover:text-orange-400 group-hover:translate-x-1 transition-all" />
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* General Task Items */}
+                  {reviewTasks.map((task) => (
+                    <div key={task.id} className="p-6 bg-white/5 border border-white/5 rounded-2xl group hover:border-blue-500/30 transition-all">
+                      <div className="flex justify-between items-start gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase tracking-tighter">
+                              {task.type || 'General'}
+                            </span>
+                            <h4 className="font-bold text-gray-200 group-hover:text-white transition-colors">{task.title}</h4>
+                          </div>
+                          <p className="text-xs text-gray-500 line-clamp-2 mb-4 leading-relaxed">{task.description || 'No description provided.'}</p>
+                          
+                          <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-widest text-gray-600">
+                            <span className="flex items-center gap-2">
+                              <UserCircle className="w-3.5 h-3.5 text-blue-500/50" />
+                              {task.profiles?.full_name}
+                            </span>
+                            {task.submission_link && (
+                              <a href={task.submission_link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-400 hover:text-blue-300">
+                                <Briefcase className="w-3.5 h-3.5" />
+                                View_Deliverable
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const { success } = await verifyTask(task.id, 'verified');
+                              if (success) fetchAdminStats();
+                            }}
+                            className="px-6 py-2.5 rounded-xl bg-green-600/10 border border-green-500/20 text-green-400 text-[10px] font-black uppercase tracking-widest hover:bg-green-600 hover:text-white transition-all shadow-lg shadow-green-600/10"
+                          >
+                            Approve
+                          </button>
+                          <button 
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const reason = prompt('Specify rejection parameters:');
+                              if (reason) {
+                                const { success } = await verifyTask(task.id, 'rejected', reason);
+                                if (success) fetchAdminStats();
+                              }
+                            }}
+                            className="px-6 py-2.5 rounded-xl bg-red-600/5 border border-red-500/10 text-red-500/50 text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {reviewTasks.length === 0 && marketingReview.length === 0 && (
+                    <div className="h-[300px] flex flex-col items-center justify-center border-2 border-dashed border-[#1f1f1f] rounded-2xl bg-black/50">
+                      <CheckCircle2 className="w-12 h-12 text-gray-800 mb-4 opacity-20" />
+                      <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest">Global Queue Clear</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* AI Sidebar */}
-            <div className="lg:col-span-1">
+            {/* AI Sidebar & Notifications */}
+            <div className="lg:col-span-1 space-y-6">
+
               <HeadManagerAI />
             </div>
           </div>
@@ -202,11 +318,16 @@ export default function Home() {
           </div>
         </>
       )}
+      <CreateProjectModal 
+        isOpen={showProjectModal} 
+        onClose={() => setShowProjectModal(false)} 
+        employees={activeEmployees} 
+      />
     </div>
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 min-h-screen">
       {isAdmin ? <AdminView /> : <EmployeeDashboard />}
     </div>
   );

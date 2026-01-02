@@ -54,7 +54,12 @@ CREATE TABLE public.marketing_content (
     platform TEXT,
     scheduled_date DATE NOT NULL,
     status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'shot', 'edited', 'posted', 'admin-review', 'approved', 'rejected')),
+    is_shot BOOLEAN DEFAULT FALSE,
+    is_edited BOOLEAN DEFAULT FALSE,
+    is_posted BOOLEAN DEFAULT FALSE,
     drive_link TEXT,
+    admin_feedback TEXT,
+    assigned_to UUID REFERENCES public.profiles(id),
     created_by UUID REFERENCES public.profiles(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -86,6 +91,7 @@ CREATE TABLE public.time_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES public.profiles(id),
     task_id UUID REFERENCES public.tasks(id),
+    marketing_content_id UUID REFERENCES public.marketing_content(id),
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE,
     duration INTEGER, -- in seconds

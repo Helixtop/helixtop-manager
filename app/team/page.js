@@ -6,7 +6,7 @@ import {
   Mail, 
   Lock, 
   Briefcase, 
-  DollarSign, 
+  IndianRupee, 
   Trash2, 
   CheckCircle2, 
   Clock,
@@ -15,7 +15,10 @@ import {
   Filter,
   Loader2,
   Key,
-  Edit
+  Edit,
+  Calendar,
+  XCircle,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -26,6 +29,41 @@ import { createEmployee, getEmployees, updateEmployeeSalary } from './actions';
 export default function TeamPage() {
   const { user, profile, loading: authLoading, isAdmin } = useAuth();
   const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    role: 'Developer',
+    salary: '',
+    password: ''
+  });
+
+  const fetchEmployees = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const result = await getEmployees();
+      
+      if (result.success) {
+        setEmployees(result.data);
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      if (!silent) alert('Failed to load team data: ' + error.message);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmployees();
+    const interval = setInterval(() => fetchEmployees(true), 60000);
+    return () => clearInterval(interval);
+  }, []);
   
   if (authLoading) {
     return (
@@ -53,38 +91,7 @@ export default function TeamPage() {
       </div>
     );
   }
-  const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    role: 'Developer',
-    salary: '',
-    password: ''
-  });
 
-  useEffect(() => {
-    fetchEmployees();
-  }, []);
-
-  const fetchEmployees = async () => {
-    setLoading(true);
-    try {
-      const result = await getEmployees();
-      
-      if (result.success) {
-        setEmployees(result.data);
-      } else {
-        throw new Error(result.message);
-      }
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      alert('Failed to load team data: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAddEmployee = async (e) => {
     e.preventDefault();
@@ -134,7 +141,14 @@ export default function TeamPage() {
     }
   };
 
-  const calculateSalary = (hourly, time) => hourly * time;
+  const formatDuration = (seconds) => {
+    if (!seconds) return '0h';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -169,128 +183,232 @@ export default function TeamPage() {
       </div>
 
       {/* Employee List */}
-      <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl overflow-x-auto shadow-2xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {loading ? (
-          <div className="flex items-center justify-center p-20 gap-3">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-            <p className="text-gray-500 font-bold uppercase text-xs tracking-widest">Synchronizing Vault...</p>
+             Array(6).fill(0).map((_, i) => (
+               <div key={i} className="h-48 rounded-3xl bg-[#0a0a0a] border border-[#1f1f1f] animate-pulse" />
+             ))
+        ) : employees.length > 0 ? employees.map((emp) => (
+          <div 
+            key={emp.id} 
+            onClick={() => setSelectedEmployee(emp)}
+            className="group bg-[#0a0a0a] border border-[#1f1f1f] hover:border-blue-500/50 rounded-3xl p-6 cursor-pointer transition-all hover:shadow-2xl hover:shadow-blue-900/10 hover:-translate-y-1 relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity">
+               <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+                  <ChevronRight className="w-4 h-4 text-blue-400" />
+               </div>
+            </div>
+
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1a1a1a] to-black border border-[#333] flex items-center justify-center font-bold text-xl text-gray-400 group-hover:text-white group-hover:border-blue-500/50 transition-all shadow-inner">
+                 {emp.full_name?.split(' ').map(n => n[0]).join('')}
+              </div>
+              <div>
+                 <h3 className="font-bold text-white text-lg tracking-tight group-hover:text-blue-400 transition-colors">{emp.full_name}</h3>
+                 <p className="text-xs text-gray-500 font-medium">{emp.role}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+               <div>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Weekly_Activity</p>
+                  <p className="text-sm font-mono font-bold text-white">{formatDuration(emp.stats?.weeklySeconds)}</p>
+               </div>
+               <div className="text-right">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Unpaid_Balance</p>
+                  <p className={cn("text-sm font-mono font-bold", (emp.stats?.pendingPayment || 0) > 0 ? "text-green-400" : "text-gray-600")}>
+                     ₹{(emp.stats?.pendingPayment || 0).toLocaleString()}
+                  </p>
+               </div>
+            </div>
+            
+            {(emp.stats?.pendingPayment || 0) > 0 && (
+                <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500" />
+            )}
           </div>
-        ) : (
-          <div className="w-full overflow-x-auto min-w-0">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead>
-                <tr className="border-b border-[#1f1f1f] bg-white/5">
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap w-[250px]">Employee</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap w-[200px]">Role</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Rate</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Time</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Salary</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Status</th>
-                  <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right whitespace-nowrap w-[150px]">Actions</th>
-                </tr>
-              </thead>
-            <tbody className="divide-y divide-[#1f1f1f]">
-              {employees.length > 0 ? employees.map((emp) => (
-                <tr key={emp.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#1a1a1a] border border-[#333] flex items-center justify-center font-bold text-gray-400 group-hover:text-white group-hover:border-blue-500/30 group-hover:bg-blue-500/10 transition-all">
-                        {emp.full_name?.split(' ').map(n => n[0]).join('')}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-white truncate max-w-[150px]">{emp.full_name}</p>
-                        <p className="text-xs text-gray-500 truncate max-w-[150px]">{emp.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-wider border border-blue-500/20 whitespace-nowrap">
-                      {emp.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <p className="text-sm font-medium text-gray-300">₹{emp.hourly_rate}/hr</p>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-gray-500" />
-                      <p className="text-sm text-gray-300 font-mono">{emp.trackedTime}h</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <p className="text-sm font-bold text-green-400">
-                      ₹{calculateSalary(emp.hourly_rate, emp.trackedTime).toLocaleString('en-IN')}
-                    </p>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className={cn(
-                      "flex items-center gap-1.5 px-3 py-1 rounded-full border w-fit",
-                      emp.isPaid 
-                        ? "bg-green-500/10 text-green-400 border-green-500/20" 
-                        : "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                    )}>
-                      <div className={cn("w-1.5 h-1.5 rounded-full", emp.isPaid ? "bg-green-500" : "bg-orange-500")} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">
-                        {emp.isPaid ? 'Paid' : 'Pending'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-1">
-                      {!emp.isPaid && (
-                        <button 
-                          onClick={async () => {
-                            const amount = calculateSalary(emp.hourly_rate, emp.trackedTime);
-                            if (amount <= 0) return alert('No tracked time to pay for.');
-                            
-                            if (confirm(`Approve payment of ₹${amount.toLocaleString('en-IN')} to ${emp.full_name}?`)) {
-                               const { error } = await supabase.from('transactions').insert([{
-                                  amount: amount,
-                                  type: 'expense',
-                                  category: `Payroll: ${emp.full_name}`,
-                                  date: new Date().toISOString().split('T')[0],
-                                  notes: `Payment for ${emp.trackedTime} hours @ ₹${emp.hourly_rate}/hr`
-                               }]);
-                               
-                               if (!error) {
-                                 alert('Payment processed and logged in Accounting.');
-                                 fetchEmployees();
-                               } else {
-                                 alert('Payment error: ' + error.message);
-                               }
-                            }
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 hover:text-green-300 text-[10px] font-bold uppercase tracking-widest transition-all"
-                        >
-                          Pay
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => setEditingEmployee({ ...emp, newRate: emp.hourly_rate })}
-                        className="p-2 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-all"
-                        title="Edit Salary"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      {/* More button hidden for now to save space if unrelated */}
-                      {/* <button className="p-2 rounded-lg hover:bg-white/10 text-gray-500 transition-all">
-                        <MoreVertical className="w-4 h-4" />
-                      </button> */}
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan="7" className="px-6 py-20 text-center">
-                    <p className="text-gray-500 text-sm font-bold uppercase tracking-widest">No employees found in database.</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        )) : (
+          <div className="col-span-full py-20 text-center border-2 border-dashed border-[#1f1f1f] rounded-3xl">
+            <p className="text-gray-500 text-sm font-bold uppercase tracking-widest">No personnel found.</p>
           </div>
         )}
       </div>
+
+      {/* Selected Employee Detail Modal */}
+      {selectedEmployee && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+           <div className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-2xl rounded-3xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="p-8 border-b border-white/5 bg-white/[0.02] flex justify-between items-start">
+                 <div className="flex items-center gap-6">
+                    <div className="w-20 h-20 rounded-3xl bg-black border border-white/10 flex items-center justify-center text-3xl font-black text-gray-500 shadow-xl">
+                       {selectedEmployee.full_name?.split(' ').map(n => n[0]).join('')}
+                    </div>
+                    <div>
+                       <h2 className="text-2xl font-black text-white uppercase tracking-tight">{selectedEmployee.full_name}</h2>
+                       <div className="flex items-center gap-3 mt-2">
+                          <span className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
+                             {selectedEmployee.role}
+                          </span>
+                          <span className="text-xs text-gray-500 font-mono">{selectedEmployee.email}</span>
+                       </div>
+                    </div>
+                 </div>
+                 <button onClick={() => setSelectedEmployee(null)} className="p-2 rounded-xl hover:bg-white/10 text-gray-500 hover:text-white transition-all">
+                    <XCircle className="w-6 h-6" />
+                 </button>
+              </div>
+
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                 {/* Left Column: Stats */}
+                 <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
+                          <Clock className="w-5 h-5 text-gray-600 mb-2" />
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">This Week</p>
+                          <p className="text-xl font-black text-white tracking-tighter">{formatDuration(selectedEmployee.stats?.weeklySeconds)}</p>
+                       </div>
+                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
+                          <Calendar className="w-5 h-5 text-gray-600 mb-2" />
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">This Month</p>
+                          <p className="text-xl font-black text-white tracking-tighter">{formatDuration(selectedEmployee.stats?.monthlySeconds)}</p>
+                       </div>
+                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
+                          <CheckCircle2 className="w-5 h-5 text-green-500/50 mb-2" />
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Completed</p>
+                          <p className="text-2xl font-black text-white tracking-tighter">{selectedEmployee.stats?.completedTasks || 0}</p>
+                       </div>
+                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
+                          <Loader2 className="w-5 h-5 text-orange-500/50 mb-2" />
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Pending</p>
+                          <p className="text-2xl font-black text-white tracking-tighter">{selectedEmployee.stats?.pendingTasks || 0}</p>
+                       </div>
+                    </div>
+
+                    {/* Amount Credited Box */}
+                    <div className="p-5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                        <div>
+                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Amount Credited</p>
+                           <p className="text-xs text-gray-600">Lifetime Earnings</p>
+                        </div>
+                        <p className="text-xl font-black text-green-400 tracking-tighter">
+                           ₹{(selectedEmployee.stats?.totalPaidEstimated || 0).toLocaleString()}
+                        </p>
+                    </div>
+                 </div>
+
+                 {/* Right Column: Financials */}
+                 <div className="space-y-6">
+                    <div className="p-6 rounded-3xl bg-gradient-to-b from-blue-900/10 to-blue-900/5 border border-blue-500/20 text-center relative overflow-hidden">
+                       <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-3xl rounded-full" />
+                       <p className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-1">Unpaid Balance</p>
+                       <p className="text-4xl font-black text-white tracking-tighter">
+                          ₹{(selectedEmployee.stats?.pendingPayment || 0).toLocaleString()}
+                       </p>
+                       <p className="text-[10px] text-blue-400/60 mt-2 font-mono">
+                          {formatDuration(selectedEmployee.stats?.unpaidSeconds)} @ ₹{selectedEmployee.hourly_rate}/hr
+                       </p>
+                    </div>
+
+                    <div className="space-y-3">
+                       <button 
+                         onClick={async () => {
+                             const amount = selectedEmployee.stats?.pendingPayment || 0;
+                             if (amount <= 0) return alert('No pending balance to pay.');
+                             
+                             if (confirm(`Process payment of ₹${amount.toLocaleString()} to ${selectedEmployee.full_name}?`)) {
+                                 const { error } = await supabase.from('transactions').insert([{
+                                    amount: amount,
+                                    type: 'expense',
+                                    category: `Payroll: ${selectedEmployee.full_name}`,
+                                    date: new Date().toISOString().split('T')[0],
+                                    notes: `Payroll Cleared: ${formatDuration(selectedEmployee.stats?.unpaidSeconds || 0)}`
+                                 }]);
+                                 // Update time_logs to is_paid=true
+                                 await supabase.from('time_logs')
+                                    .update({ is_paid: true })
+                                    .eq('user_id', selectedEmployee.id)
+                                    .eq('is_paid', false);
+
+                                 if (!error) {
+                                   alert('Payment processed successfully.');
+                                   setSelectedEmployee(null);
+                                   fetchEmployees();
+                                 } else {
+                                   alert('Error: ' + error.message);
+                                 }
+                             }
+                         }}
+                         disabled={(selectedEmployee.stats?.pendingPayment || 0) <= 0}
+                         className="w-full py-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold uppercase tracking-widest text-xs shadow-lg shadow-green-600/20 transition-all flex items-center justify-center gap-2"
+                       >
+                         <IndianRupee className="w-4 h-4" />
+                         Process Payment
+                       </button>
+
+                       <button 
+                         onClick={() => {
+                             setEditingEmployee({ ...selectedEmployee, newRate: selectedEmployee.hourly_rate });
+                             // Ideally we keep selectedEmployee open or close it? 
+                             // Let's close it to avoid modal stacking issues unless handled well
+                             // Or just switch focus.
+                         }}
+                         className="w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white font-bold uppercase tracking-widest text-[10px] transition-all"
+                       >
+                         Adjust Hourly Rate
+                       </button>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Recent Works List */}
+              <div className="p-8 border-t border-white/5 bg-black/20">
+                 <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-blue-500" />
+                    Recent Activity
+                 </h4>
+                 <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    {selectedEmployee.stats?.recentTasks?.length > 0 ? (
+                        selectedEmployee.stats?.recentTasks.map(task => {
+                           const isVerified = task.status === 'verified';
+                           const isRejected = task.status === 'rejected';
+                           const isPending = !isVerified && !isRejected;
+
+                           return (
+                             <div key={task.id} className={cn(
+                               "p-3 rounded-xl border flex justify-between items-center transition-all",
+                               isVerified ? "bg-green-500/5 border-green-500/20 hover:border-green-500/30" : 
+                               isRejected ? "bg-red-500/5 border-red-500/20 hover:border-red-500/30" :
+                               "bg-blue-500/5 border-blue-500/20 hover:border-blue-500/30"
+                             )}>
+                                <p className={cn("text-xs font-medium truncate max-w-[280px]", 
+                                   isVerified ? "text-green-200" : 
+                                   isRejected ? "text-red-200" : 
+                                   "text-blue-200"
+                                )}>{task.title}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                     "px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border",
+                                     isVerified ? "bg-green-500/10 text-green-400 border-green-500/20" :
+                                     isRejected ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                                     "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                  )}>
+                                     {task.status || 'Pending'}
+                                  </span>
+                                </div>
+                             </div>
+                           );
+                        })
+                    ) : (
+                        <div className="p-4 rounded-xl border border-dashed border-white/10 text-center">
+                           <p className="text-xs text-gray-600 italic">No recent activity detected.</p>
+                        </div>
+                    )}
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
 
       {/* Add Employee Modal */}
       {showAddModal && (
@@ -413,11 +531,11 @@ export default function TeamPage() {
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">New Hourly Rate (₹)</label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                   <input 
                     type="number" 
                     required
-                    value={editingEmployee.newRate}
+                    value={editingEmployee.newRate || ''}
                     onChange={(e) => setEditingEmployee({...editingEmployee, newRate: e.target.value})}
                     className="w-full bg-black border border-[#1f1f1f] rounded-xl py-2.5 pl-10 pr-4 text-sm focus:border-blue-500/50 outline-none" 
                     placeholder="500" 

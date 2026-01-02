@@ -76,6 +76,37 @@ export async function updateLeadStage(id, newStage) {
   }
 }
 
+export async function updateLead(id, updates) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('leads')
+      .update(updates)
+      .eq('id', id);
+
+    if (error) throw error;
+    
+    revalidatePath('/sales');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function generatePriceEstimate(scope) {
+  // Simulate AI Analysis
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  const complexity = scope.length > 100 ? 1.5 : 1;
+  const basePrice = Math.floor(Math.random() * (50000 - 20000) + 20000);
+  const estimated = Math.round(basePrice * complexity / 1000) * 1000;
+  
+  return {
+    price: estimated,
+    timeline: `${Math.floor(complexity * 4)}-${Math.floor(complexity * 6)} Weeks`,
+    breakdown: `Based on the scope "${scope.substring(0, 20)}...", we estimate high complexity in frontend modules.`
+  };
+}
+
 export async function closeDeal(id, dealData) {
     try {
         // 1. Update Lead
@@ -126,4 +157,53 @@ export async function closeDeal(id, dealData) {
         console.error('Close Deal Error', err);
         return { success: false, error: err.message };
     }
+}
+
+export async function addPayment(id, amount, note) {
+  try {
+    // 1. Fetch current structure
+    const { data: lead, error: fetchError } = await supabaseAdmin
+      .from('leads')
+      .select('payment_structure, budget')
+      .eq('id', id)
+      .single();
+      
+    if (fetchError) throw fetchError;
+
+    const currentStructure = lead.payment_structure || {};
+    const payments = currentStructure.payments || [];
+    
+    const newPayment = {
+      amount: parseFloat(amount),
+      note,
+      date: new Date().toISOString()
+    };
+    
+    const updatedPayments = [newPayment, ...payments];
+    const totalCollected = updatedPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    
+    // 2. Update Lead
+    const { error: updateError } = await supabaseAdmin
+      .from('leads')
+      .update({ 
+        payment_structure: { ...currentStructure, payments: updatedPayments, total_collected: totalCollected }
+      })
+      .eq('id', id);
+
+    if (updateError) throw updateError;
+    
+    // 3. Log Transaction
+    await supabaseAdmin.from('transactions').insert([{
+        amount: parseFloat(amount),
+        type: 'income',
+        category: 'Project Payment', 
+        notes: `Payment for Lead ${id}: ${note}`,
+        date: new Date().toISOString().split('T')[0]
+    }]);
+
+    revalidatePath('/sales');
+    return { success: true, totalCombined: totalCollected };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
