@@ -60,7 +60,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
   return (
     <aside className={cn(
-      "fixed top-0 left-0 w-64 h-full bg-black border-r border-[#1f1f1f] flex flex-col z-[150] lg:z-[100] overflow-hidden select-none shrink-0 transition-transform duration-300 ease-out",
+      "fixed lg:sticky top-0 left-0 w-64 h-screen bg-black border-r border-[#1f1f1f] flex flex-col z-[150] lg:z-[100] overflow-hidden select-none shrink-0 transition-transform duration-300 ease-out",
       isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
     )}>
       <div className="p-6 shrink-0 bg-black/50 backdrop-blur-sm relative z-10 flex justify-between items-center">
