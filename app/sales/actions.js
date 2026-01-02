@@ -16,7 +16,7 @@ export async function getLeads() {
   try {
     const { data: leads, error } = await supabaseAdmin
       .from('leads')
-      .select('*')
+      .select('*, profiles:assigned_to(full_name)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -32,16 +32,49 @@ export async function getLeads() {
   }
 }
 
+export async function getEmployees() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, role')
+      .order('full_name');
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (error) {
+    console.error('getEmployees Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getLeadDetails(id) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    
+    return { data: serializeLead(data), error: null };
+  } catch (error) {
+    console.error('getLeadDetails Error:', error);
+    return { data: null, error: error.message };
+  }
+}
+
 export async function createLead(formData) {
   try {
+    const meetingTime = formData.get('meeting_time');
     const leadData = {
       name: formData.get('name'),
       type: formData.get('type'),
       contact: formData.get('contact'),
       priority: formData.get('priority'),
-      stage: 'ad-leads', // Default
+      stage: meetingTime ? 'meeting-booked' : 'ad-leads', 
       assigned_to: formData.get('assigned_to') || null,
-      meeting_time: null,
+      meeting_time: meetingTime || null,
       created_at: new Date().toISOString()
     };
     
@@ -92,19 +125,42 @@ export async function updateLead(id, updates) {
   }
 }
 
+import { generateContent } from '@/lib/gemini';
+
 export async function generatePriceEstimate(scope) {
-  // Simulate AI Analysis
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  const complexity = scope.length > 100 ? 1.5 : 1;
-  const basePrice = Math.floor(Math.random() * (50000 - 20000) + 20000);
-  const estimated = Math.round(basePrice * complexity / 1000) * 1000;
-  
-  return {
-    price: estimated,
-    timeline: `${Math.floor(complexity * 4)}-${Math.floor(complexity * 6)} Weeks`,
-    breakdown: `Based on the scope "${scope.substring(0, 20)}...", we estimate high complexity in frontend modules.`
-  };
+  try {
+    const prompt = `
+      You are a professional project estimator. 
+      Analyze the following project scope and provide a realistic price estimate in Indian Rupees (INR) and a timeline in weeks.
+      Return the response ONLY as a JSON object with the following structure:
+      {
+        "price": number,
+        "timeline": "string",
+        "breakdown": "string"
+      }
+      
+      Scope: "${scope}"
+    `;
+
+    const rawResponse = await generateContent(prompt);
+    // Sanitize response (Gemini sometimes wraps in ```json)
+    const jsonString = rawResponse.replace(/```json|```/g, '').trim();
+    const estimate = JSON.parse(jsonString);
+
+    return {
+      price: estimate.price || 0,
+      timeline: estimate.timeline || 'TBD',
+      breakdown: estimate.breakdown || 'Analysis complete.'
+    };
+  } catch (error) {
+    console.error('Gemini Price Estimation Error:', error);
+    // Fallback if AI fails
+    return {
+      price: 25000,
+      timeline: "2-4 Weeks",
+      breakdown: "Note: AI analysis failed, provide manual assessment."
+    };
+  }
 }
 
 export async function closeDeal(id, dealData) {
@@ -135,9 +191,10 @@ export async function closeDeal(id, dealData) {
             await supabaseAdmin.from('transactions').insert([{
               amount: dealData.advance,
               type: 'income',
-              category: `Advance Payment`, 
-              notes: `Advance for Deal ID: ${id}`,
-              date: new Date().toISOString().split('T')[0]
+              category: dealData.name || 'Project Advance', 
+              notes: `Advance Payment`,
+              date: new Date().toISOString().split('T')[0],
+              reference_id: id
             }]);
         }
         
@@ -164,7 +221,7 @@ export async function addPayment(id, amount, note) {
     // 1. Fetch current structure
     const { data: lead, error: fetchError } = await supabaseAdmin
       .from('leads')
-      .select('payment_structure, budget')
+      .select('payment_structure, budget, name')
       .eq('id', id)
       .single();
       
@@ -196,9 +253,10 @@ export async function addPayment(id, amount, note) {
     await supabaseAdmin.from('transactions').insert([{
         amount: parseFloat(amount),
         type: 'income',
-        category: 'Project Payment', 
-        notes: `Payment for Lead ${id}: ${note}`,
-        date: new Date().toISOString().split('T')[0]
+        category: lead.name || 'Project Payment', 
+        notes: note,
+        date: new Date().toISOString().split('T')[0],
+        reference_id: id
     }]);
 
     revalidatePath('/sales');

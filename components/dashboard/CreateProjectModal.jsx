@@ -10,7 +10,7 @@ import {
   Briefcase,
   Loader2
 } from 'lucide-react';
-import { createTask } from '@/app/actions';
+import { createProject } from '@/app/projects/actions';
 
 export default function CreateProjectModal({ isOpen, onClose, employees = [] }) {
   const [loading, setLoading] = useState(false);
@@ -22,7 +22,7 @@ export default function CreateProjectModal({ isOpen, onClose, employees = [] }) 
     setLoading(true);
     
     const formData = new FormData(e.target);
-    const { success, error } = await createTask(formData);
+    const { success, error } = await createProject(formData);
 
     if (success) {
       alert('Project successfully initialized and assigned.');

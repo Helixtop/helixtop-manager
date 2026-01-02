@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { getDashboardMetrics, verifyTask } from './actions';
 
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
+import IncomeGraph from '@/components/dashboard/IncomeGraph';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Home() {
@@ -107,6 +108,7 @@ export default function Home() {
               trend={12} 
               color="blue"
               description="Across all departments"
+              onClick={() => router.push('/projects')}
             />
             <StatCard 
               title="Pending Tasks" 
@@ -115,6 +117,7 @@ export default function Home() {
               trend={-5} 
               color="orange"
               description="Requiring attention"
+              onClick={() => router.push('/pending-works')}
             />
             <StatCard 
               title="Completed Work" 
@@ -123,6 +126,7 @@ export default function Home() {
               trend={24} 
               color="green"
               description="Lifetime total"
+              onClick={() => router.push('/projects')}
             />
             <StatCard 
               title="Monthly_Profit" 
@@ -131,7 +135,13 @@ export default function Home() {
               trend="+12.5%" 
               description="Net financial progress" 
               color="blue"
+              onClick={() => router.push('/accounting')}
             />
+          </div>
+
+
+          <div className="mb-8 animate-in slide-in-from-bottom-4 duration-500 delay-100">
+             <IncomeGraph />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

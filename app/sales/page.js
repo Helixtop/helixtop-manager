@@ -42,7 +42,7 @@ import {
   IndianRupee
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getLeads, createLead, updateLeadStage, closeDeal, updateLead, generatePriceEstimate, addPayment } from './actions';
+import { getLeads, createLead, updateLeadStage, closeDeal, updateLead, generatePriceEstimate, addPayment, getLeadDetails, getEmployees } from './actions';
 
 const Confetti = () => (
   <div className="fixed inset-0 pointer-events-none z-[200] overflow-hidden flex justify-between items-end px-20 pb-0">
@@ -151,6 +151,8 @@ export default function SalesPage() {
 
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [filterStage, setFilterStage] = useState('all');
+  const [employees, setEmployees] = useState([]);
 
   useEffect(() => {
     if (showConfetti) {
@@ -167,16 +169,23 @@ export default function SalesPage() {
             email: selectedLead.email || '',
             phone: selectedLead.phone || '',
             description: selectedLead.description || '',
-            // If contact field was used as fallback
             contact: selectedLead.contact || '',
-            budget: selectedLead.budget || ''
+            budget: selectedLead.budget || '',
+            assigned_to: selectedLead.assigned_to || '',
+            meeting_time: selectedLead.meeting_time ? new Date(selectedLead.meeting_time).toISOString().slice(0, 16) : ''
         });
     }
   }, [selectedLead]);
 
   useEffect(() => {
     fetchLeads();
+    fetchEmployees();
   }, []);
+
+  const fetchEmployees = async () => {
+    const { success, data } = await getEmployees();
+    if (success) setEmployees(data || []);
+  };
 
   const fetchLeads = async () => {
     setLoading(true);
@@ -288,6 +297,19 @@ export default function SalesPage() {
                 List
               </button>
             </div>
+          <div className="flex bg-[#0a0a0a] border border-[#1f1f1f] rounded-xl px-3 items-center gap-2">
+            <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Filter:</span>
+            <select 
+              value={filterStage}
+              onChange={(e) => setFilterStage(e.target.value)}
+              className="bg-transparent border-none text-xs font-bold text-gray-300 focus:ring-0 outline-none py-2 cursor-pointer appearance-none min-w-[120px]"
+            >
+              <option value="all">All_Statuses</option>
+              {COLUMNS.map(col => (
+                <option key={col.id} value={col.id}>{col.title.replace(' ', '_')}</option>
+              ))}
+            </select>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input 
@@ -313,13 +335,11 @@ export default function SalesPage() {
         </div>
       ) : viewMode === 'list' ? (
         <SalesList 
-          leads={leads} 
+          leads={leads.filter(l => filterStage === 'all' || l.stage === filterStage)} 
           onSelectLead={(lead) => {
              setSelectedLead(lead);
-             if (lead.stage === 'win') {
-                 // Already a win, just show details
-             }
           }} 
+          onUpdateStage={updateLocalAndServerStage}
         />
       ) : (
         <DndContext
@@ -330,7 +350,7 @@ export default function SalesPage() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-6 overflow-x-auto pb-6 -mx-8 px-8 scrollbar-hide">
-            {COLUMNS.map((column) => (
+            {COLUMNS.filter(col => filterStage === 'all' || col.id === filterStage).map((column) => (
               <div key={column.id} className="flex-shrink-0 w-72">
                 <div className="flex items-center justify-between mb-4 px-2">
                   <div className="flex items-center gap-2">
@@ -359,11 +379,17 @@ export default function SalesPage() {
                       {leads
                         .filter(l => l.stage === column.id)
                         .map((lead) => (
-                          <div key={lead.id} onClick={() => {
-                            setSelectedLead(lead);
-                            if (lead.stage === 'win') {
-                                // Already a win, just show details
-                            }
+                          <div key={lead.id} onClick={async () => {
+                             // Optimistically show current (stale?) data first
+                             setSelectedLead(lead); 
+                             
+                             // Then transparently fetch fresh data
+                             const { data: freshLead, error } = await getLeadDetails(lead.id);
+                             if (freshLead && !error) {
+                                setSelectedLead(freshLead);
+                             } else {
+                                console.error("Failed to refresh lead:", error);
+                             }
                           }}>
                              <LeadCard lead={lead} />
                           </div>
@@ -442,14 +468,30 @@ export default function SalesPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Assign Sales Rep (Optional ID)</label>
-                <input name="assigned_to" className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-sm focus:border-blue-500/50 outline-none" placeholder="Profile UUID" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Assign Responsible Rep</label>
+                  <select name="assigned_to" className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-3 text-sm focus:border-blue-500/50 outline-none">
+                    <option value="">Unassigned</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.role})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Meeting Time (Optional)</label>
+                  <input 
+                    name="meeting_time" 
+                    type="datetime-local" 
+                    onClick={(e) => e.target.showPicker?.()}
+                    className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-3 text-xs focus:border-blue-500/50 outline-none text-white appearance-none" 
+                  />
+                </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
-                <p className="text-[10px] font-bold text-gray-500 uppercase">Default Stage</p>
-                <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-black uppercase border border-blue-500/20">Ad Leads</span>
+                <p className="text-[10px] font-bold text-gray-500 uppercase">Stage Logic</p>
+                <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-black uppercase border border-blue-500/20">Auto_Determined</span>
               </div>
             </div>
 
@@ -526,10 +568,43 @@ export default function SalesPage() {
                        Actually, let's put Financials on the RIGHT, and Scope on the LEFT (swapped)? 
                        No, keep Scope prominent. Let's put Financials below Basic Info. */}
                    
-                   <div className="pt-6 border-t border-zinc-800">
-                     <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <IndianRupee className="w-3 h-3" /> Financial Overview
-                     </h4>
+                   <div className="pt-6 border-t border-zinc-800 space-y-4">
+                      <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                         <Calendar className="w-3 h-3" /> Meeting & Assignment
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                         <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold text-zinc-600 uppercase">Assigned Rep</label>
+                            <select 
+                              value={editFormData.assigned_to} 
+                              onChange={e => setEditFormData({...editFormData, assigned_to: e.target.value})}
+                              className="w-full bg-black border border-zinc-800 rounded-lg py-2 px-3 text-xs text-zinc-300 outline-none focus:border-blue-500/50"
+                            >
+                               <option value="">Unassigned</option>
+                               {employees.map(emp => (
+                                 <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                               ))}
+                            </select>
+                         </div>
+                         <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold text-zinc-600 uppercase">Meeting Scheduled</label>
+                            <input 
+                              type="datetime-local"
+                              value={editFormData.meeting_time} 
+                              onChange={e => {
+                                 const val = e.target.value;
+                                 setEditFormData({...editFormData, meeting_time: val});
+                              }}
+                              className="w-full bg-black border border-zinc-800 rounded-lg py-2 px-3 text-[10px] text-zinc-300 outline-none focus:border-blue-500/50 appearance-none inline-flex items-center"
+                            />
+                         </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-zinc-800">
+                      <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                         <IndianRupee className="w-3 h-3" /> Financial Overview
+                      </h4>
                      <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                            <div className="space-y-1.5">
@@ -568,24 +643,68 @@ export default function SalesPage() {
                              className="flex-1 bg-black border border-zinc-800 rounded-lg py-2 px-3 text-xs outline-none focus:border-green-500/50"
                            />
                            <button 
-                             onClick={async () => {
-                               if (!paymentAmount) return;
-                               const { success, totalCombined } = await addPayment(selectedLead.id, paymentAmount, paymentNote);
-                               if (success) {
-                                  alert('Payment recorded.');
-                                  setPaymentAmount('');
-                                  setPaymentNote('');
-                                  const updatedStructure = { ...(selectedLead.payment_structure || {}), total_collected: totalCombined };
-                                  setSelectedLead({ ...selectedLead, payment_structure: updatedStructure });
-                                  fetchLeads();
-                               }
-                             }}
-                             className="h-full px-4 rounded-lg bg-zinc-800 hover:bg-green-600 hover:text-white text-zinc-400 text-[10px] font-bold uppercase transition-all"
+                              onClick={async () => {
+                                if (!paymentAmount) {
+                                   alert('Please enter a payment amount.');
+                                   return;
+                                }
+                                try {
+                                   // 1. Save Lead Details First (Budget, etc.)
+                                   const { success: updateSuccess, error: updateError } = await updateLead(selectedLead.id, editFormData);
+                                   if (!updateSuccess) {
+                                      alert('Failed to save lead details before payment: ' + updateError);
+                                      return; 
+                                   }
+
+                                   // 2. Log Payment
+                                   const { success, totalCombined, error } = await addPayment(selectedLead.id, paymentAmount, paymentNote);
+                                   if (success) {
+                                      alert('Success! Payment logged and details saved.');
+                                      setPaymentAmount('');
+                                      setPaymentNote('');
+                                      
+                                      // 3. Optimistic Update
+                                      const updatedStructure = { ...(selectedLead.payment_structure || {}), total_collected: totalCombined };
+                                      const updatedLead = { ...selectedLead, ...editFormData, payment_structure: updatedStructure };
+                                      setSelectedLead(updatedLead);
+                                      
+                                      fetchLeads(); // Refresh global list
+                                   } else {
+                                      alert('Failed to log payment transaction: ' + (error || 'Unknown Error'));
+                                   }
+                                } catch (err) {
+                                   alert('System Error: ' + err.message);
+                                }
+                              }}
+                             className="h-full px-5 rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-green-600/20 transition-all flex items-center gap-1"
                            >
                              Log
                            </button>
                         </div>
                      </div>
+
+                     
+                     {/* Payment History Log */}
+                     {selectedLead.payment_structure?.payments?.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-zinc-800">
+                           <h5 className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Payment History</h5>
+                           <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                              {selectedLead.payment_structure.payments.map((p, i) => (
+                                 <div key={i} className="flex justify-between items-center text-xs bg-black/40 p-2 rounded-lg border border-zinc-800/50">
+                                    <div className="flex gap-2">
+                                       <span className="text-zinc-500 font-mono text-[10px]">
+                                          {new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                       </span>
+                                       <span className="text-zinc-300">{p.note || 'Payment'}</span>
+                                    </div>
+                                    <span className="text-emerald-400 font-mono font-bold">
+                                       +₹{parseFloat(p.amount).toLocaleString()}
+                                    </span>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     )}
                    </div>
                </div>
 
@@ -634,10 +753,17 @@ export default function SalesPage() {
                )}
                <button 
                   onClick={async () => {
-                     const { success } = await updateLead(selectedLead.id, editFormData);
-                     if (success) {
-                         fetchLeads();
-                         setSelectedLead(null);
+                     try {
+                        const { success, error } = await updateLead(selectedLead.id, editFormData);
+                        if (success) {
+                            fetchLeads();
+                            setSelectedLead(null);
+                            alert('Lead details updated successfully!');
+                        } else {
+                            alert('Update Failed: ' + (error || 'Unknown Error'));
+                        }
+                     } catch(err) {
+                        alert('System Error: ' + err.message);
                      }
                   }}
                   className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all uppercase tracking-wide"

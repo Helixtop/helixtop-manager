@@ -46,12 +46,11 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  const fetchProfile = async (userId, userEmail = null) => {
-    // If we're already fetching or have a recent match, be smart
-    if (profile?.id === userId) return;
+  const fetchProfile = async (userId, userEmail = null, force = false) => {
+    if (!force && profile?.id === userId) return;
 
     try {
-      // 1. Direct fetch by ID
+      // 1. Direct fetch by ID (Primary)
       const { data: profileById } = await supabase
         .from('profiles')
         .select('id, email, full_name, role, avatar_url')
@@ -63,25 +62,56 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // 2. Provisioning fallback
+      // 2. ID Not Found? Try syncing by Email
       const email = userEmail || user?.email;
       if (!email) return;
 
-      const isAdminEmail = email.toLowerCase() === 'admin@helixtop.com';
-
-      const { data: resolvedProfile } = await supabase
+      const { data: profileByEmail } = await supabase
         .from('profiles')
-        .upsert({
-          id: userId,
-          email: email,
-          full_name: email.split('@')[0],
-          role: isAdminEmail ? 'Admin' : 'Developer',
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'email' })
-        .select()
-        .single();
+        .select('*')
+        .eq('email', email)
+        .maybeSingle();
 
-      if (resolvedProfile) setProfile(resolvedProfile);
+      const isAdminEmail = email.toLowerCase() === 'admin@helixtop.com';
+      
+      // Get role from Auth metadata if available, else keep existing DB role, else default
+      const authUser = (await supabase.auth.getUser()).data.user;
+      const metadataRole = authUser?.user_metadata?.role;
+      
+      const defaultRole = isAdminEmail ? 'Admin' : (metadataRole || 'Developer');
+      const finalRole = profileByEmail?.role || defaultRole;
+
+      if (profileByEmail) {
+        // Sync ID if it was different or missing
+        const { data: updatedProfile } = await supabase
+          .from('profiles')
+          .update({ 
+            id: userId,
+            full_name: profileByEmail.full_name || email.split('@')[0],
+            role: finalRole, // Prioritize existing DB role if it exists
+            updated_at: new Date().toISOString()
+          })
+          .eq('email', email)
+          .select()
+          .single();
+        
+        if (updatedProfile) setProfile(updatedProfile);
+      } else {
+        // Truly new user - provision
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: email,
+            full_name: email.split('@')[0],
+            role: finalRole,
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (newProfile) setProfile(newProfile);
+      }
     } catch (err) {
       console.error('❌ AUTH: Background profile sync failed:', err);
     }
@@ -115,10 +145,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const refreshProfile = async () => {
+  const refreshProfile = async (force = true) => {
     if (user?.id) {
        console.log('🔄 AUTH: Manual profile refresh triggered...');
-       await fetchProfile(user.id, user.email);
+       await fetchProfile(user.id, user.email, force);
     }
   };
 

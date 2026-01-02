@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -15,7 +15,8 @@ import {
   Settings,
   LogOut,
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ROLES } from '@/lib/roles';
@@ -24,6 +25,7 @@ import { cn } from '@/lib/utils';
 const menuItems = [
   { name: 'Dashboard', icon: LayoutDashboard, href: '/' },
   { name: 'Team', icon: Users, href: '/team', adminOnly: true },
+  { name: 'Projects', icon: Briefcase, href: '/projects', adminOnly: true },
   { name: 'Marketing', icon: Megaphone, href: '/marketing' },
   { name: 'Pending Works', icon: ClipboardList, href: '/pending-works' },
   { name: 'Sales', icon: Briefcase, href: '/sales' },
@@ -33,7 +35,7 @@ const menuItems = [
   { name: 'Vault', icon: Lock, href: '/vault', adminOnly: true },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }) {
   const pathname = usePathname();
   const { user, profile, signOut, isAdmin, effectiveRole } = useAuth();
 
@@ -43,22 +45,34 @@ export default function Sidebar() {
       // 1. Check Admin Only
       if (item.adminOnly && !isAdmin) return false;
       
-      // 2. Check Developer Restrictions
-      if ((effectiveRole === 'Developer' || profile?.role === 'Developer') && !isAdmin) {
-          const hiddenItems = ['Marketing', 'Sales', 'AI Pricing', 'Accounting'];
-          if (hiddenItems.includes(item.name)) return false;
+      // 2. Check Developer/Creator Restrictions
+      const restrictedRoles = ['Developer', 'Digital Content Creator'];
+      if (restrictedRoles.includes(effectiveRole) && !isAdmin) {
+          const alwaysHidden = ['Sales', 'AI Pricing', 'Accounting'];
+          if (alwaysHidden.includes(item.name)) return false;
+          
+          // Role specific logic
+          if (effectiveRole === 'Developer' && item.name === 'Marketing') return false;
       }
       
       return true;
   });
 
   return (
-    <aside className="w-64 h-[100dvh] bg-black border-r border-[#1f1f1f] flex flex-col fixed left-0 top-0 z-[100] overflow-hidden select-none">
-      <div className="p-6 shrink-0 bg-black/50 backdrop-blur-sm relative z-10">
-        <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-green-400 bg-clip-text text-transparent uppercase tracking-tighter">
-          Helixtop
-        </h1>
-        <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1 font-black">Management Suite</p>
+    <aside className={cn(
+      "fixed top-0 left-0 w-64 h-full bg-black border-r border-[#1f1f1f] flex flex-col z-[150] lg:z-[100] overflow-hidden select-none shrink-0 transition-transform duration-300 ease-out",
+      isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+    )}>
+      <div className="p-6 shrink-0 bg-black/50 backdrop-blur-sm relative z-10 flex justify-between items-center">
+        <div>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-green-400 bg-clip-text text-transparent uppercase tracking-tighter">
+            Helixtop
+            </h1>
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1 font-black">Management Suite</p>
+        </div>
+        <button onClick={onClose} className="lg:hidden p-2 hover:bg-white/5 rounded-xl transition-all">
+            <X className="w-5 h-5 text-gray-500" />
+        </button>
       </div>
 
       <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto custom-scrollbar">
@@ -68,6 +82,9 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => {
+                  if (window.innerWidth < 1024) onClose();
+              }}
               className={cn(
                 "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative",
                 isActive 

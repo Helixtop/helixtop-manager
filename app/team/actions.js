@@ -1,6 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { revalidatePath } from 'next/cache';
 
 /**
  * Server Action to create a new employee using the Service Role.
@@ -125,7 +126,7 @@ export async function getEmployees() {
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').eq('is_paid', true),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfMonth),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfWeekStr),
-        supabaseAdmin.from('tasks').select('id, title, assigned_to, status').order('created_at', { ascending: false })
+        supabaseAdmin.from('tasks').select('id, title, assigned_to, status, submission_link').order('created_at', { ascending: false })
     ]);
 
     // 3. Aggregate data
@@ -204,5 +205,175 @@ export async function updateEmployeeSalary(prevState, formData) {
   } catch (error) {
     console.error('Update Salary Error:', error);
     return { success: false, message: 'Failed to update salary: ' + error.message };
+  }
+}
+
+export async function processSalaryPayment(userId, amount, durationStr) {
+    try {
+        if (!userId || !amount) {
+            throw new Error('User ID and Amount are required for payment.');
+        }
+
+        // 1. Fetch user name for notes
+        const { data: profile, error: pError } = await supabaseAdmin
+            .from('profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .single();
+        
+        if (pError) throw pError;
+
+        // 2. Insert transaction
+        const { error: tError } = await supabaseAdmin.from('transactions').insert([{
+            amount: parseFloat(amount),
+            type: 'expense',
+            category: 'Payroll',
+            notes: `${profile.full_name} (${durationStr})`,
+            date: new Date().toISOString().split('T')[0],
+            reference_id: userId
+        }]);
+
+        if (tError) throw tError;
+
+        // 3. Mark time logs as paid
+        const { error: lError } = await supabaseAdmin
+            .from('time_logs')
+            .update({ is_paid: true })
+            .eq('user_id', userId)
+            .eq('is_paid', false);
+        
+        if (lError) throw lError;
+
+        revalidatePath('/team');
+        revalidatePath('/accounting');
+        revalidatePath('/'); // Dashboard
+
+        return { success: true, message: 'Payment processed and logged to Accounting.' };
+    } catch (error) {
+        console.error('processSalaryPayment Error:', error);
+        return { success: false, message: error.message };
+    }
+}
+
+export async function getDetailedEmployeeTime(userId, type, value, weekIndex = null) {
+    try {
+        let query = supabaseAdmin
+            .from('time_logs')
+            .select('duration, start_time, end_time')
+            .eq('user_id', userId);
+
+        const date = new Date(value);
+        let start, end;
+
+        if (type === 'Day') {
+            start = new Date(date.setHours(0, 0, 0, 0)).toISOString();
+            end = new Date(date.setHours(23, 59, 59, 999)).toISOString();
+            query = query.gte('start_time', start).lte('start_time', end);
+        } else if (type === 'Week') {
+            // value is expected as 'YYYY-MM', weekIndex is 1-5
+            const [year, month] = value.split('-').map(Number);
+            const firstDayOfMonth = new Date(year, month - 1, 1);
+            
+            // Start of week 1 is the 1st of the month.
+            // Each week is exactly 7 days for simplicity as per user request (1st week, 2nd week...)
+            const startDay = (weekIndex - 1) * 7 + 1;
+            start = new Date(year, month - 1, startDay, 0, 0, 0, 0).toISOString();
+            
+            // End day is either (start + 7) or end of month
+            const endDay = startDay + 7;
+            const lastDayOfMonth = new Date(year, month, 0).getDate();
+            const actualEndDay = Math.min(endDay, lastDayOfMonth + 1);
+            
+            end = new Date(year, month - 1, actualEndDay, 0, 0, 0, 0).toISOString();
+            query = query.gte('start_time', start).lt('start_time', end);
+        } else if (type === 'Month') {
+            start = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
+            end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+            query = query.gte('start_time', start).lte('start_time', end);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const totalSeconds = (data || []).reduce((acc, curr) => {
+            let dur = Number(curr.duration) || 0;
+            if (!curr.end_time && curr.start_time) {
+                const s = new Date(curr.start_time).getTime();
+                const n = Date.now();
+                dur += Math.max(0, Math.floor((n - s) / 1000));
+            }
+            return acc + dur;
+        }, 0);
+
+        return { success: true, totalSeconds };
+    } catch (error) {
+        console.error('getDetailedEmployeeTime Error:', error);
+        return { success: false, message: error.message };
+    }
+}
+
+export async function updateEmployeeRole(prevState, formData) {
+  const userId = formData.get('userId');
+  const role = formData.get('role');
+
+  if (!userId || !role) {
+    return { success: false, message: 'Missing required fields.' };
+  }
+
+  try {
+    // 1. Update Profile
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .update({ role: role })
+      .eq('id', userId);
+
+    if (profileError) throw profileError;
+
+    // 2. Update Auth Metadata
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: { role: role }
+    });
+
+    if (authError) throw authError;
+
+    revalidatePath('/team');
+    return { success: true, message: 'Role updated successfully.' };
+  } catch (error) {
+    console.error('Update Role Error:', error);
+    return { success: false, message: 'Failed to update role: ' + error.message };
+  }
+}
+
+export async function scheduleMeeting(prevState, formData) {
+  const userId = formData.get('userId');
+  const leadName = formData.get('leadName');
+  const meetingTime = formData.get('meetingTime');
+  const description = formData.get('description');
+
+  if (!userId || !leadName || !meetingTime) {
+    return { success: false, message: 'Missing required fields.' };
+  }
+
+  try {
+    const { error } = await supabaseAdmin
+      .from('leads')
+      .insert([{
+        name: leadName,
+        stage: 'meeting-booked',
+        assigned_to: userId,
+        meeting_time: meetingTime,
+        type: 'General Meeting',
+        priority: 'medium',
+        created_at: new Date().toISOString()
+      }]);
+
+    if (error) throw error;
+
+    revalidatePath('/team');
+    revalidatePath('/pending-works');
+    return { success: true, message: 'Meeting scheduled successfully.' };
+  } catch (error) {
+    console.error('Schedule Meeting Error:', error);
+    return { success: false, message: 'Failed to schedule meeting: ' + error.message };
   }
 }

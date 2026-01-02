@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-export default function StatCard({ title, value, icon: Icon, trend, color, description }) {
+export default function StatCard({ title, value, icon: Icon, trend, color, description, onClick }) {
   const colorMap = {
     blue: "from-blue-600/20 to-blue-400/5 text-blue-400 border-blue-500/20",
     green: "from-green-600/20 to-green-400/5 text-green-400 border-green-500/20",
@@ -11,10 +11,14 @@ export default function StatCard({ title, value, icon: Icon, trend, color, descr
   };
 
   return (
-    <div className={cn(
-      "p-6 rounded-2xl border bg-gradient-to-br transition-all duration-300 hover:scale-[1.02]",
-      colorMap[color] || colorMap.blue
-    )}>
+    <div 
+      onClick={onClick}
+      className={cn(
+        "p-6 rounded-2xl border bg-gradient-to-br transition-all duration-300 hover:scale-[1.02]",
+        onClick && "cursor-pointer hover:shadow-lg hover:shadow-white/5",
+        colorMap[color] || colorMap.blue
+      )}
+    >
       <div className="flex justify-between items-start mb-4">
         <div className="p-2 rounded-xl bg-black/40 border border-white/5">
           <Icon className="w-6 h-6" />

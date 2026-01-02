@@ -2,25 +2,37 @@
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-export async function getPendingWorks() {
+export async function getPendingWorks(userId = null) {
   try {
+    let tasksQuery = supabaseAdmin
+      .from('tasks')
+      .select('*, profiles:assigned_to(full_name)')
+      .in('status', ['pending', 'in-progress']);
+
+    let marketingQuery = supabaseAdmin
+      .from('marketing_content')
+      .select('*, profiles:assigned_to(full_name)')
+      .in('status', ['planned', 'shot', 'edited', 'admin-review']);
+
+    let leadsQuery = supabaseAdmin
+      .from('leads')
+      .select('*, profiles:assigned_to(full_name)')
+      .eq('stage', 'meeting-booked');
+
+    if (userId) {
+      tasksQuery = tasksQuery.eq('assigned_to', userId);
+      marketingQuery = marketingQuery.eq('assigned_to', userId);
+      leadsQuery = leadsQuery.eq('assigned_to', userId);
+    }
+
     const [
       { data: tasks, error: tasksError },
       { data: marketing, error: marketingError },
       { data: leads, error: leadsError }
     ] = await Promise.all([
-      supabaseAdmin
-        .from('tasks')
-        .select('*, profiles:assigned_to(full_name)')
-        .in('status', ['pending', 'in-progress']),
-      supabaseAdmin
-        .from('marketing_content')
-        .select('*, profiles:assigned_to(full_name)')
-        .in('status', ['planned', 'shot', 'edited', 'admin-review']),
-      supabaseAdmin
-        .from('leads')
-        .select('*, profiles:assigned_to(full_name)')
-        .eq('stage', 'meeting-booked')
+      tasksQuery,
+      marketingQuery,
+      leadsQuery
     ]);
 
     if (tasksError) throw tasksError;

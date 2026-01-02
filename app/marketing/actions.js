@@ -17,8 +17,10 @@ export async function getMarketingData(userId = null, role = null) {
   try {
     let contentQuery = supabaseAdmin.from('marketing_content').select('*').order('scheduled_date', { ascending: true });
     
-    // Filter for non-admins
-    if (role && role !== 'Admin' && userId) {
+    // Only restrict for specific roles that shouldn't see everything
+    // Admins and Digital Content Creators see everything
+    const sharedRoles = ['Admin', 'Digital Content Creator'];
+    if (role && !sharedRoles.includes(role) && userId) {
         contentQuery = contentQuery.eq('assigned_to', userId);
     }
 
@@ -213,10 +215,28 @@ export async function createAdCampaign(formData) {
             leads_generated: 0
         };
 
-        const { error } = await supabaseAdmin.from('ad_campaigns').insert([data]);
+        const { data: campaign, error } = await supabaseAdmin.from('ad_campaigns').insert([data]).select().single();
         if (error) throw error;
 
+        // Log Allocation as Expense in Accounting
+        if (data.budget > 0) {
+            const { error: txError } = await supabaseAdmin.from('transactions').insert([{
+                amount: data.budget,
+                type: 'expense',
+                category: 'Ad Allocation',
+                notes: `Budget for: ${data.campaign_name}`,
+                date: new Date().toLocaleDateString('en-CA'),
+                reference_id: campaign.id
+            }]);
+            if (txError) {
+                console.error('Error logging ad allocation transaction:', txError);
+                // We don't throw here to avoid failing campaign creation if accounting fails,
+                // but we should probably inform or handle it.
+            }
+        }
+
         revalidatePath('/marketing');
+        revalidatePath('/accounting');
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -266,9 +286,80 @@ export async function updateAdCampaign(id, data) {
             .eq('id', id);
         
         if (error) throw error;
+
+        // Ensure Ad Allocation exists or is updated in Accounting
+        if (data.budget !== undefined) {
+             const budgetVal = parseFloat(data.budget);
+             if (budgetVal > 0) {
+                 // Check if it already exists
+                 const { data: existing } = await supabaseAdmin.from('transactions')
+                    .select('id')
+                    .eq('reference_id', id)
+                    .eq('category', 'Ad Allocation')
+                    .maybeSingle();
+
+                 if (existing) {
+                     const { error: utxError } = await supabaseAdmin.from('transactions')
+                        .update({ amount: budgetVal })
+                        .eq('id', existing.id);
+                     if (utxError) console.error('Error updating ad allocation transaction:', utxError);
+                 } else {
+                     // Create it if it doesn't exist (legacy fallback)
+                     const { data: campaign } = await supabaseAdmin.from('ad_campaigns').select('campaign_name').eq('id', id).single();
+                     const { error: itxError } = await supabaseAdmin.from('transactions').insert([{
+                        amount: budgetVal,
+                        type: 'expense',
+                        category: 'Ad Allocation',
+                        notes: `Budget for: ${campaign?.campaign_name || 'Campaign'}`,
+                        date: new Date().toLocaleDateString('en-CA'),
+                        reference_id: id
+                     }]);
+                     if (itxError) console.error('Error inserting ad allocation transaction:', itxError);
+                 }
+             }
+        }
+
         revalidatePath('/marketing');
+        revalidatePath('/accounting');
         return { success: true };
     } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function logAdSpend(id, amount, note = "") {
+    try {
+        const { data: ad, error: fError } = await supabaseAdmin
+            .from('ad_campaigns')
+            .select('campaign_name, spend')
+            .eq('id', id)
+            .single();
+        
+        if (fError) throw fError;
+
+        const additionalSpend = parseFloat(amount);
+        if (isNaN(additionalSpend) || additionalSpend <= 0) {
+            throw new Error('Invalid spend amount');
+        }
+
+        const { error: uError } = await supabaseAdmin
+            .from('ad_campaigns')
+            .update({ spend: (ad.spend || 0) + additionalSpend })
+            .eq('id', id);
+        
+        if (uError) throw uError;
+
+        // Note: We no longer insert a transaction here because we are using 'Ad Allocation' (Budget) 
+        // as the primary accounting expense to avoid double counting.
+        // The spend remains a metric for marketing performance tracking.
+
+        revalidatePath('/marketing');
+        revalidatePath('/accounting');
+        revalidatePath('/');
+        
+        return { success: true };
+    } catch (error) {
+        console.error('logAdSpend Error:', error);
         return { success: false, error: error.message };
     }
 }

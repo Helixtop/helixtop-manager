@@ -24,7 +24,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { ROLES } from '@/lib/roles';
 import { supabase } from '@/lib/supabase';
-import { createEmployee, getEmployees, updateEmployeeSalary } from './actions';
+import { createEmployee, getEmployees, updateEmployeeSalary, processSalaryPayment } from './actions';
+import EmployeeDetail from '@/components/team/EmployeeDetail';
 
 export default function TeamPage() {
   const { user, profile, loading: authLoading, isAdmin } = useAuth();
@@ -236,178 +237,12 @@ export default function TeamPage() {
 
       {/* Selected Employee Detail Modal */}
       {selectedEmployee && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-           <div className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-2xl rounded-3xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-              {/* Header */}
-              <div className="p-8 border-b border-white/5 bg-white/[0.02] flex justify-between items-start">
-                 <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 rounded-3xl bg-black border border-white/10 flex items-center justify-center text-3xl font-black text-gray-500 shadow-xl">
-                       {selectedEmployee.full_name?.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <div>
-                       <h2 className="text-2xl font-black text-white uppercase tracking-tight">{selectedEmployee.full_name}</h2>
-                       <div className="flex items-center gap-3 mt-2">
-                          <span className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
-                             {selectedEmployee.role}
-                          </span>
-                          <span className="text-xs text-gray-500 font-mono">{selectedEmployee.email}</span>
-                       </div>
-                    </div>
-                 </div>
-                 <button onClick={() => setSelectedEmployee(null)} className="p-2 rounded-xl hover:bg-white/10 text-gray-500 hover:text-white transition-all">
-                    <XCircle className="w-6 h-6" />
-                 </button>
-              </div>
-
-              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                 {/* Left Column: Stats */}
-                 <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
-                          <Clock className="w-5 h-5 text-gray-600 mb-2" />
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">This Week</p>
-                          <p className="text-xl font-black text-white tracking-tighter">{formatDuration(selectedEmployee.stats?.weeklySeconds)}</p>
-                       </div>
-                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
-                          <Calendar className="w-5 h-5 text-gray-600 mb-2" />
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">This Month</p>
-                          <p className="text-xl font-black text-white tracking-tighter">{formatDuration(selectedEmployee.stats?.monthlySeconds)}</p>
-                       </div>
-                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
-                          <CheckCircle2 className="w-5 h-5 text-green-500/50 mb-2" />
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Completed</p>
-                          <p className="text-2xl font-black text-white tracking-tighter">{selectedEmployee.stats?.completedTasks || 0}</p>
-                       </div>
-                       <div className="p-5 rounded-2xl bg-black border border-white/5 space-y-2">
-                          <Loader2 className="w-5 h-5 text-orange-500/50 mb-2" />
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Pending</p>
-                          <p className="text-2xl font-black text-white tracking-tighter">{selectedEmployee.stats?.pendingTasks || 0}</p>
-                       </div>
-                    </div>
-
-                    {/* Amount Credited Box */}
-                    <div className="p-5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
-                        <div>
-                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Amount Credited</p>
-                           <p className="text-xs text-gray-600">Lifetime Earnings</p>
-                        </div>
-                        <p className="text-xl font-black text-green-400 tracking-tighter">
-                           ₹{(selectedEmployee.stats?.totalPaidEstimated || 0).toLocaleString()}
-                        </p>
-                    </div>
-                 </div>
-
-                 {/* Right Column: Financials */}
-                 <div className="space-y-6">
-                    <div className="p-6 rounded-3xl bg-gradient-to-b from-blue-900/10 to-blue-900/5 border border-blue-500/20 text-center relative overflow-hidden">
-                       <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-3xl rounded-full" />
-                       <p className="text-[10px] font-bold text-blue-300 uppercase tracking-widest mb-1">Unpaid Balance</p>
-                       <p className="text-4xl font-black text-white tracking-tighter">
-                          ₹{(selectedEmployee.stats?.pendingPayment || 0).toLocaleString()}
-                       </p>
-                       <p className="text-[10px] text-blue-400/60 mt-2 font-mono">
-                          {formatDuration(selectedEmployee.stats?.unpaidSeconds)} @ ₹{selectedEmployee.hourly_rate}/hr
-                       </p>
-                    </div>
-
-                    <div className="space-y-3">
-                       <button 
-                         onClick={async () => {
-                             const amount = selectedEmployee.stats?.pendingPayment || 0;
-                             if (amount <= 0) return alert('No pending balance to pay.');
-                             
-                             if (confirm(`Process payment of ₹${amount.toLocaleString()} to ${selectedEmployee.full_name}?`)) {
-                                 const { error } = await supabase.from('transactions').insert([{
-                                    amount: amount,
-                                    type: 'expense',
-                                    category: `Payroll: ${selectedEmployee.full_name}`,
-                                    date: new Date().toISOString().split('T')[0],
-                                    notes: `Payroll Cleared: ${formatDuration(selectedEmployee.stats?.unpaidSeconds || 0)}`
-                                 }]);
-                                 // Update time_logs to is_paid=true
-                                 await supabase.from('time_logs')
-                                    .update({ is_paid: true })
-                                    .eq('user_id', selectedEmployee.id)
-                                    .eq('is_paid', false);
-
-                                 if (!error) {
-                                   alert('Payment processed successfully.');
-                                   setSelectedEmployee(null);
-                                   fetchEmployees();
-                                 } else {
-                                   alert('Error: ' + error.message);
-                                 }
-                             }
-                         }}
-                         disabled={(selectedEmployee.stats?.pendingPayment || 0) <= 0}
-                         className="w-full py-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold uppercase tracking-widest text-xs shadow-lg shadow-green-600/20 transition-all flex items-center justify-center gap-2"
-                       >
-                         <IndianRupee className="w-4 h-4" />
-                         Process Payment
-                       </button>
-
-                       <button 
-                         onClick={() => {
-                             setEditingEmployee({ ...selectedEmployee, newRate: selectedEmployee.hourly_rate });
-                             // Ideally we keep selectedEmployee open or close it? 
-                             // Let's close it to avoid modal stacking issues unless handled well
-                             // Or just switch focus.
-                         }}
-                         className="w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white font-bold uppercase tracking-widest text-[10px] transition-all"
-                       >
-                         Adjust Hourly Rate
-                       </button>
-                    </div>
-                 </div>
-              </div>
-
-              {/* Recent Works List */}
-              <div className="p-8 border-t border-white/5 bg-black/20">
-                 <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Briefcase className="w-4 h-4 text-blue-500" />
-                    Recent Activity
-                 </h4>
-                 <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {selectedEmployee.stats?.recentTasks?.length > 0 ? (
-                        selectedEmployee.stats?.recentTasks.map(task => {
-                           const isVerified = task.status === 'verified';
-                           const isRejected = task.status === 'rejected';
-                           const isPending = !isVerified && !isRejected;
-
-                           return (
-                             <div key={task.id} className={cn(
-                               "p-3 rounded-xl border flex justify-between items-center transition-all",
-                               isVerified ? "bg-green-500/5 border-green-500/20 hover:border-green-500/30" : 
-                               isRejected ? "bg-red-500/5 border-red-500/20 hover:border-red-500/30" :
-                               "bg-blue-500/5 border-blue-500/20 hover:border-blue-500/30"
-                             )}>
-                                <p className={cn("text-xs font-medium truncate max-w-[280px]", 
-                                   isVerified ? "text-green-200" : 
-                                   isRejected ? "text-red-200" : 
-                                   "text-blue-200"
-                                )}>{task.title}</p>
-                                <div className="flex items-center gap-2">
-                                  <span className={cn(
-                                     "px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border",
-                                     isVerified ? "bg-green-500/10 text-green-400 border-green-500/20" :
-                                     isRejected ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                                     "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                  )}>
-                                     {task.status || 'Pending'}
-                                  </span>
-                                </div>
-                             </div>
-                           );
-                        })
-                    ) : (
-                        <div className="p-4 rounded-xl border border-dashed border-white/10 text-center">
-                           <p className="text-xs text-gray-600 italic">No recent activity detected.</p>
-                        </div>
-                    )}
-                 </div>
-              </div>
-           </div>
-        </div>
+        <EmployeeDetail 
+          employee={selectedEmployee} 
+          onClose={() => setSelectedEmployee(null)}
+          onRefresh={fetchEmployees}
+          onEditSalary={(emp) => setEditingEmployee({ ...emp, newRate: emp.hourly_rate })}
+        />
       )}
 
       {/* Add Employee Modal */}

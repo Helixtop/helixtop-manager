@@ -6,6 +6,7 @@ export async function getDashboardMetrics() {
   try {
     const [
       { count: totalTasks },
+      { count: totalProjects },
       { count: pending },
       { count: verified },
       { data: transactions },
@@ -15,6 +16,7 @@ export async function getDashboardMetrics() {
       { data: reviewTasks }
     ] = await Promise.all([
       supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }),
       supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true }).in('status', ['pending', 'in-progress']),
       supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'verified'),
       supabaseAdmin.from('transactions').select('amount, type'),
@@ -30,7 +32,7 @@ export async function getDashboardMetrics() {
     return {
       success: true,
       stats: {
-        totalProjects: totalTasks || 0,
+        totalProjects: totalProjects || 0,
         pendingTasks: pending || 0,
         completedWork: verified || 0,
         monthlyProfit: income - expense
@@ -96,6 +98,116 @@ export async function createTask(formData) {
     return { success: true, data };
   } catch (error) {
     console.error('Create Task Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getIncomeGraphData(period) {
+  try {
+    const today = new Date();
+    let startDate = new Date();
+    let dateFormat = ''; // 'daily' or 'monthly'
+
+    if (period === 'week') {
+      startDate.setDate(today.getDate() - 7);
+      dateFormat = 'daily';
+    } else if (period === 'month') {
+      startDate.setDate(today.getDate() - 30);
+      dateFormat = 'daily';
+    } else if (period === 'year') {
+      startDate.setFullYear(today.getFullYear() - 1);
+      dateFormat = 'monthly';
+    }
+
+    const { data: transactions, error } = await supabaseAdmin
+      .from('transactions')
+      .select('amount, date, type')
+      .eq('type', 'income')
+      .gte('date', startDate.toISOString().split('T')[0])
+      .order('date', { ascending: true });
+
+    if (error) throw error;
+
+    // Aggregation Logic
+    const aggregated = {};
+    
+    // Initialize defaults to show empty graph if no data
+    if (period === 'week') {
+        for(let i=0; i<7; i++) {
+            const d = new Date();
+            d.setDate(today.getDate() - (6-i));
+            aggregated[d.toISOString().split('T')[0]] = 0;
+        }
+    } else if (period === 'month') {
+        for(let i=0; i<30; i++) {
+            const d = new Date();
+            d.setDate(today.getDate() - (29-i));
+            aggregated[d.toISOString().split('T')[0]] = 0;
+        }
+    } else if (period === 'year') {
+        for(let i=0; i<12; i++) {
+            const d = new Date();
+            d.setMonth(today.getMonth() - (11-i));
+            const key = d.toISOString().split('T')[0].substring(0, 7); // YYYY-MM
+            aggregated[key] = 0;
+        }
+    }
+
+    transactions.forEach(t => {
+      let key = t.date; // Default YYYY-MM-DD
+      if (dateFormat === 'monthly') {
+        key = t.date.substring(0, 7); // YYYY-MM
+      }
+      
+      aggregated[key] = (aggregated[key] || 0) + parseFloat(t.amount);
+    });
+
+    // Format for Recharts
+    const chartData = Object.keys(aggregated).map(key => ({
+      name: key,
+      income: aggregated[key]
+    })).sort((a,b) => new Date(a.name) - new Date(b.name));
+
+    return { success: true, data: chartData };
+  } catch (error) {
+    console.error('Graph Data Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function migrateTasksToProjects() {
+  try {
+    // 1. Fetch all tasks of type 'Project'
+    const { data: tasks, error: fetchError } = await supabaseAdmin
+      .from('tasks')
+      .select('*')
+      .eq('type', 'Project');
+
+    if (fetchError) throw fetchError;
+    if (!tasks || tasks.length === 0) return { success: true, count: 0 };
+
+    // 2. Insert into projects table
+    const projectsToInsert = tasks.map(t => ({
+      name: t.title,
+      description: t.description,
+      status: t.status === 'verified' ? 'completed' : t.status,
+      assigned_to: t.assigned_to,
+      deadline: t.deadline,
+      created_at: t.created_at
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from('projects')
+      .insert(projectsToInsert);
+
+    if (insertError) throw insertError;
+
+    // 3. Mark tasks as migrated or delete them? 
+    // Let's just keep them but the user requested "Registry" style.
+    
+    return { success: true, count: tasks.length };
+  } catch (error) {
+    console.error('Migration Error:', error);
     return { success: false, error: error.message };
   }
 }

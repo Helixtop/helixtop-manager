@@ -12,7 +12,16 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export default function SalesList({ leads, onSelectLead }) {
+export default function SalesList({ leads, onSelectLead, onUpdateStage }) {
+  const STAGES = [
+    { id: 'ad-leads', title: 'Ad Leads' },
+    { id: 'contacted', title: 'Contacted' },
+    { id: 'meeting-booked', title: 'Meeting Booked' },
+    { id: 'meeting-completed', title: 'Meeting Completed' },
+    { id: 'win', title: 'Win' },
+    { id: 'lose', title: 'Lose' },
+  ];
+
   const getStageColor = (stage) => {
     switch (stage) {
       case 'ad-leads': return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
@@ -38,10 +47,12 @@ export default function SalesList({ leads, onSelectLead }) {
       {leads.map((lead) => (
         <div 
           key={lead.id}
-          onClick={() => onSelectLead(lead)}
-          className="group p-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl hover:border-blue-500/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden shadow-xl cursor-pointer"
+          className="group p-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl hover:border-blue-500/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden shadow-xl"
         >
-          <div className="flex items-center gap-5 flex-1 min-w-0">
+          <div 
+            onClick={() => onSelectLead(lead)}
+            className="flex items-center gap-5 flex-1 min-w-0 cursor-pointer"
+          >
             <div className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg bg-blue-600/10 text-blue-400 border border-blue-500/20 text-lg font-bold">
               {lead.name[0]}
             </div>
@@ -73,15 +84,21 @@ export default function SalesList({ leads, onSelectLead }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-8 flex-shrink-0">
-            <div className="flex flex-col items-end min-w-[120px]">
+          <div className="flex items-center gap-8 flex-shrink-0 relative z-10">
+            <div className="flex flex-col items-end min-w-[140px]">
               <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mb-1">Status_Node</span>
-              <div className={cn(
-                "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
-                getStageColor(lead.stage)
-              )}>
-                {lead.stage?.replace('-', ' ')}
-              </div>
+              <select 
+                value={lead.stage}
+                onChange={(e) => onUpdateStage(lead.id, e.target.value)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border outline-none focus:ring-0 cursor-pointer appearance-none",
+                  getStageColor(lead.stage)
+                )}
+              >
+                {STAGES.map(stage => (
+                  <option key={stage.id} value={stage.id} className="bg-black text-white">{stage.title.replace(' ', '_')}</option>
+                ))}
+              </select>
             </div>
 
             {lead.meeting_time && (
@@ -94,7 +111,12 @@ export default function SalesList({ leads, onSelectLead }) {
               </div>
             )}
 
-            <ChevronRight className="w-5 h-5 text-gray-800 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+            <div 
+               onClick={() => onSelectLead(lead)}
+               className="cursor-pointer"
+            >
+              <ChevronRight className="w-5 h-5 text-gray-800 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+            </div>
           </div>
 
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-blue-600 transition-all rounded-l-2xl shadow-[0_0_15px_#3b82f6]" />

@@ -15,7 +15,8 @@ import {
   XCircle,
   Play,
   Pause,
-  MoreHorizontal
+  MoreHorizontal,
+  X
 } from 'lucide-react';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
@@ -33,7 +34,8 @@ import {
   updateMarketingConfig,
   createAdCampaign,
   addLeadFromCampaign,
-  updateAdCampaign
+  updateAdCampaign,
+  logAdSpend
 } from './actions';
 import { supabase } from '@/lib/supabase';
 import './marketing.css';
@@ -139,7 +141,7 @@ export default function MarketingPage() {
     if (!profile) return;
     setLoading(true);
     try {
-      const { success, content, ads, workingDays: days, configs: cfg, error } = await getMarketingData(profile.id, profile.role);
+      const { success, content, ads, workingDays: days, configs: cfg, leads: serverLeads, error } = await getMarketingData(profile.id, profile.role);
       
       if (!success) throw new Error(error);
 
@@ -149,12 +151,9 @@ export default function MarketingPage() {
         date: new Date(item.scheduled_date)
       }));
 
-      if (activeTab === 'calendar') {
-        setContentItems(parsedContent);
-      } else {
-        setAdsData(ads);
-        setLeads(leads);
-      }
+      setContentItems(parsedContent);
+      setAdsData(ads);
+      setLeads(serverLeads || []);
       setWorkingDays(days);
       setConfigs(cfg || {});
 
@@ -204,14 +203,14 @@ export default function MarketingPage() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-end">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
           <h2 className="text-3xl font-bold text-white uppercase tracking-tight">Marketing Suite</h2>
           <p className="text-gray-500 mt-1 uppercase text-[10px] font-bold tracking-widest">Growth & Visibility</p>
         </div>
-        <div className="flex gap-4">
-          {profile?.role === ROLES.ADMIN && (
+        <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+          {(profile?.role === ROLES.ADMIN || profile?.role === ROLES.CONTENT_CREATOR) && (
              <button 
                onClick={() => handleToggleWorkingDay(date)}
                className={cn(
@@ -228,7 +227,7 @@ export default function MarketingPage() {
             <button 
               onClick={() => setActiveTab('calendar')}
               className={cn(
-                "px-4 py-2 rounded-lg text-sm font-bold transition-all",
+                "px-4 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-tight",
                 activeTab === 'calendar' ? "bg-blue-600 text-white shadow-lg" : "text-gray-500 hover:text-white"
               )}
             >
@@ -237,7 +236,7 @@ export default function MarketingPage() {
             <button 
               onClick={() => setActiveTab('ads')}
               className={cn(
-                "px-4 py-2 rounded-lg text-sm font-bold transition-all",
+                "px-4 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-tight",
                 activeTab === 'ads' ? "bg-blue-600 text-white shadow-lg" : "text-gray-500 hover:text-white"
               )}
             >
@@ -247,23 +246,23 @@ export default function MarketingPage() {
           {activeTab === 'calendar' ? (
             <button 
               onClick={() => setShowAddModal(true)}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-600/20 flex items-center gap-2"
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 flex items-center gap-2 uppercase tracking-widest"
             >
               <Plus className="w-4 h-4" />
               Add Content
             </button>
-          ) : profile?.role === ROLES.ADMIN && (
+          ) : (profile?.role === ROLES.ADMIN || profile?.role === ROLES.CONTENT_CREATOR) && (
             <div className="flex gap-3">
                <button 
                 onClick={() => setShowBudgetModal(true)}
-                className="px-4 py-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 text-xs font-bold transition-all flex items-center gap-2"
+                className="px-4 py-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 text-[10px] font-black tracking-widest transition-all flex items-center gap-2 uppercase"
               >
                 <IndianRupee className="w-4 h-4" />
                 Set Budget
               </button>
               <button 
                 onClick={() => setShowCampaignModal(true)}
-                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black tracking-widest shadow-lg shadow-blue-600/20 flex items-center gap-2 uppercase"
               >
                 <Play className="w-4 h-4" />
                 Start Campaign
@@ -372,12 +371,12 @@ export default function MarketingPage() {
               <h3 className="font-bold text-[10px] uppercase tracking-widest text-gray-400 mb-6">Workflow Pipeline</h3>
               <div className="relative space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-[#1f1f1f]">
                 {[
-                  { label: 'Planned', count: contentItems.filter(i => i.status === 'planned').length, color: 'text-gray-500', bg: 'bg-gray-500/10' },
-                  { label: 'Shot', count: contentItems.filter(i => i.status === 'shot').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-                  { label: 'Edited', count: contentItems.filter(i => i.status === 'edited').length, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
-                  { label: 'Review', count: contentItems.filter(i => i.status === 'admin-review').length, color: 'text-orange-400', bg: 'bg-orange-400/10' },
-                  { label: 'Approved', count: contentItems.filter(i => i.status === 'approved').length, color: 'text-green-400', bg: 'bg-green-400/10' },
-                  { label: 'Posted', count: contentItems.filter(i => i.status === 'posted').length, color: 'text-purple-400', bg: 'bg-purple-400/10' }
+                  { label: 'Planned', count: contentItems.filter(i => i.status === 'planned' && i.date.toDateString() === date.toDateString()).length, color: 'text-gray-500', bg: 'bg-gray-500/10' },
+                  { label: 'Shot', count: contentItems.filter(i => i.status === 'shot' && i.date.toDateString() === date.toDateString()).length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+                  { label: 'Edited', count: contentItems.filter(i => i.status === 'edited' && i.date.toDateString() === date.toDateString()).length, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+                  { label: 'Review', count: contentItems.filter(i => i.status === 'admin-review' && i.date.toDateString() === date.toDateString()).length, color: 'text-orange-400', bg: 'bg-orange-400/10' },
+                  { label: 'Approved', count: contentItems.filter(i => i.status === 'approved' && i.date.toDateString() === date.toDateString()).length, color: 'text-green-400', bg: 'bg-green-400/10' },
+                  { label: 'Posted', count: contentItems.filter(i => i.status === 'posted' && i.date.toDateString() === date.toDateString()).length, color: 'text-purple-400', bg: 'bg-purple-400/10' }
                 ].map((step, idx) => (
                   <div key={idx} className="relative pl-8 group">
                     <div className={cn("absolute left-0 top-1 w-4 h-4 rounded-full border-2 border-[#1f1f1f] bg-[#0a0a0a] transition-all", step.count > 0 && "border-blue-500 bg-blue-500/20 shadow-[0_0_8px_rgba(59,130,246,0.5)]")} />
@@ -398,14 +397,29 @@ export default function MarketingPage() {
                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-all">
                  <IndianRupee className="w-12 h-12" />
                </div>
-               <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Total Ad Budget</p>
-               <h3 className="text-3xl font-bold font-mono">₹{parseFloat(configs.ad_budget || 0).toLocaleString()}</h3>
-               <div className="mt-6 h-1 w-full bg-blue-500/10 rounded-full overflow-hidden">
-                 <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${Math.min(100, (adsData.reduce((acc, ad) => acc + (ad.spend || 0), 0) / (parseFloat(configs.ad_budget) || 1)) * 100)}%` }} />
+               <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Remaining Ad Budget</p>
+               <h3 className="text-3xl font-bold font-mono">
+                 ₹{Math.max(0, (parseFloat(configs.ad_budget || 0) - adsData.reduce((acc, ad) => acc + (ad.budget || 0), 0))).toLocaleString()}
+               </h3>
+               <div className="mt-6 h-1.5 w-full bg-blue-500/10 rounded-full overflow-hidden">
+                 <div 
+                   className="h-full bg-blue-500 transition-all duration-1000" 
+                   style={{ width: `${Math.min(100, (adsData.reduce((acc, ad) => acc + (ad.budget || 0), 0) / (parseFloat(configs.ad_budget) || 1)) * 100)}%` }} 
+                 />
                </div>
-               <p className="text-[9px] text-gray-500 mt-3 font-bold uppercase tracking-tighter">
-                 ₹{adsData.reduce((acc, ad) => acc + (ad.spend || 0), 0).toLocaleString()} Spent Utilization
-               </p>
+               <div className="flex justify-between items-center mt-3">
+                 <p className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">
+                   ₹{adsData.reduce((acc, ad) => acc + (ad.budget || 0), 0).toLocaleString()} Allocated
+                 </p>
+                 <p className="text-[9px] text-blue-400 font-bold uppercase tracking-tighter">
+                   {Math.round((adsData.reduce((acc, ad) => acc + (ad.budget || 0), 0) / (parseFloat(configs.ad_budget) || 1)) * 100)}% Used
+                 </p>
+               </div>
+               {adsData.reduce((acc, ad) => acc + (ad.spend || 0), 0) > 0 && (
+                 <p className="text-[8px] text-gray-600 mt-2 font-bold uppercase tracking-tighter text-right">
+                   ₹{adsData.reduce((acc, ad) => acc + (ad.spend || 0), 0).toLocaleString()} Spent Utilization
+                 </p>
+               )}
              </div>
              <div className="p-8 rounded-2xl border border-green-500/20 bg-green-500/5">
                 <p className="text-[10px] font-bold text-green-400 uppercase tracking-widest mb-2">Aggregate Leads</p>
@@ -426,52 +440,54 @@ export default function MarketingPage() {
              </div>
           </div>
 
-          <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl overflow-hidden shadow-2xl">
-            <table className="w-full text-left">
-              <thead className="bg-white/5 border-b border-[#1f1f1f]">
-                <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Campaign_ID</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">State</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Allocation</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">ROI_Delta</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1f1f1f]">
-                {adsData.map((ad) => (
-                  <tr key={ad.id} className="hover:bg-white/5 transition-colors group text-gray-200">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <Target className="w-4 h-4 text-blue-400" />
-                        <span className="text-sm font-bold uppercase tracking-tight">{ad.campaign_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
-                        ad.status === 'active' ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-white/5 text-gray-500 border-white/5"
-                      )}>
-                        {ad.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-mono font-bold text-gray-400">₹{ad.budget?.toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right">
-                       <span className="text-xs font-black text-green-400 font-mono">
-                         {ad.spend > 0 ? Math.round((ad.leads_generated * 100) / ad.spend * 10) / 10 : 0}X
-                       </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                       <button 
-                        onClick={() => setSelectedCampaign(ad)}
-                        className="p-2 hover:bg-white/10 rounded-lg text-gray-500 hover:text-white transition-all"
-                       >
-                         <MoreHorizontal className="w-4 h-4" />
-                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl shadow-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                <thead className="bg-white/5 border-b border-[#1f1f1f]">
+                    <tr>
+                    <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Campaign_ID</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">State</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Allocation</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">ROI_Delta</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1f1f1f]">
+                    {adsData.map((ad) => (
+                    <tr key={ad.id} className="hover:bg-white/5 transition-colors group text-gray-200">
+                        <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                            <Target className="w-4 h-4 text-blue-400" />
+                            <span className="text-sm font-bold uppercase tracking-tight">{ad.campaign_name}</span>
+                        </div>
+                        </td>
+                        <td className="px-6 py-4">
+                        <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                            ad.status === 'active' ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-white/5 text-gray-500 border-white/5"
+                        )}>
+                            {ad.status}
+                        </span>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-mono font-bold text-gray-400">₹{ad.budget?.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right">
+                        <span className="text-xs font-black text-green-400 font-mono">
+                            {ad.spend > 0 ? Math.round((ad.leads_generated * 100) / ad.spend * 10) / 10 : 0}X
+                        </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                        <button 
+                            onClick={() => setSelectedCampaign(ad)}
+                            className="p-2 hover:bg-white/10 rounded-lg text-gray-500 hover:text-white transition-all"
+                        >
+                            <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                        </td>
+                    </tr>
+                    ))}
+                </tbody>
+                </table>
+            </div>
           </div>
         </div>
       )}
@@ -609,23 +625,18 @@ export default function MarketingPage() {
           </div>
         </div>
       )}
+
       {showAddModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
           <form 
             onSubmit={async (e) => {
               e.preventDefault();
               const formData = new FormData(e.target);
-              
-              // Calculate correct date
               const offsetDate = new Date(date);
               offsetDate.setMinutes(offsetDate.getMinutes() - offsetDate.getTimezoneOffset());
               const scheduledDate = offsetDate.toISOString().split('T')[0];
-              
-              // Append properly formatted date
               formData.set('scheduled_date', scheduledDate);
-
               const { success, error } = await createContent(formData);
-
               if (success) {
                 setShowAddModal(false);
                 fetchMarketingData();
@@ -642,7 +653,6 @@ export default function MarketingPage() {
               </div>
               <XCircle className="w-6 h-6 text-gray-700 cursor-pointer" onClick={() => setShowAddModal(false)} />
             </div>
-
             <div className="p-8 space-y-5">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Content Heading</label>
@@ -663,7 +673,6 @@ export default function MarketingPage() {
                    <p className="text-sm font-bold text-blue-400 mt-2">{date.toLocaleDateString()}</p>
                 </div>
               </div>
-
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Assign Content Creator</label>
                 <select name="assigned_to" className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-3 text-sm focus:border-blue-500/50 outline-none">
@@ -677,7 +686,6 @@ export default function MarketingPage() {
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Brief / Description</label>
                 <textarea name="description" required className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-sm focus:border-blue-500/50 outline-none h-24 resize-none" placeholder="What is this content about?" />
               </div>
-              
               <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-500/10 flex items-center justify-between group cursor-pointer hover:bg-blue-600/10 transition-all">
                 <div className="flex items-center gap-3">
                   <Sparkles className="w-4 h-4 text-blue-400 animate-pulse" />
@@ -686,7 +694,6 @@ export default function MarketingPage() {
                 <ChevronRight className="w-3 h-3 text-blue-400 group-hover:translate-x-1 transition-all" />
               </div>
             </div>
-
             <div className="p-8 bg-white/5 flex gap-4">
                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-4 border border-[#1f1f1f] rounded-2xl text-[10px] font-black uppercase tracking-widest">Cancel</button>
                <button type="submit" className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-600/20">Initialize_Deployment</button>
@@ -718,13 +725,7 @@ export default function MarketingPage() {
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Global Ad Budget (Monthly)</label>
                 <div className="relative">
                   <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                  <input 
-                    name="ad_budget" 
-                    type="number" 
-                    defaultValue={configs.ad_budget || 0}
-                    required 
-                    className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 pl-10 pr-4 text-sm focus:border-blue-500/50 outline-none font-mono" 
-                  />
+                  <input name="ad_budget" type="number" defaultValue={configs.ad_budget || 0} required className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 pl-10 pr-4 text-sm focus:border-blue-500/50 outline-none font-mono" />
                 </div>
               </div>
             </div>
@@ -765,22 +766,11 @@ export default function MarketingPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Start Date</label>
-                  <input 
-                    name="start_date" 
-                    type="date" 
-                    required 
-                    onClick={(e) => e.target.showPicker?.()}
-                    className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-blue-500/50 outline-none text-white transition-all hover:border-blue-500/30" 
-                  />
+                  <input name="start_date" type="date" required onClick={(e) => e.target.showPicker?.()} className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-blue-500/50 outline-none text-white transition-all hover:border-blue-500/30" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">End Date</label>
-                  <input 
-                    name="end_date" 
-                    type="date" 
-                    onClick={(e) => e.target.showPicker?.()}
-                    className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-blue-500/50 outline-none text-white transition-all hover:border-blue-500/30" 
-                  />
+                  <input name="end_date" type="date" onClick={(e) => e.target.showPicker?.()} className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-blue-500/50 outline-none text-white transition-all hover:border-blue-500/30" />
                 </div>
               </div>
               <div className="space-y-1">
@@ -795,10 +785,9 @@ export default function MarketingPage() {
         </div>
       )}
 
-      {/* Campaign Edit / Lead Modal */}
       {selectedCampaign && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
-          <div className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-4xl rounded-3xl shadow-22xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-[#0a0a0a] border border-[#1f1f1f] w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-8 border-b border-[#1f1f1f] flex justify-between items-center bg-gradient-to-r from-blue-600/10 to-transparent">
               <div>
                 <h3 className="text-2xl font-black uppercase tracking-tighter">{selectedCampaign.campaign_name}</h3>
@@ -809,7 +798,6 @@ export default function MarketingPage() {
 
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Left: Info & Update */}
                 <div className="space-y-8">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
@@ -818,38 +806,41 @@ export default function MarketingPage() {
                     </div>
                     <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
                       <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1">Actual Spend</p>
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="number" 
-                          defaultValue={selectedCampaign.spend}
-                          onBlur={async (e) => {
-                             await updateAdCampaign(selectedCampaign.id, { spend: parseFloat(e.target.value) || 0 });
-                             fetchMarketingData();
-                          }}
-                          className="bg-transparent text-xl font-mono font-bold text-blue-400 focus:outline-none border-b border-blue-500/20 w-full"
-                        />
-                      </div>
+                      <p className="text-xl font-mono font-bold text-gray-400">₹{selectedCampaign.spend?.toLocaleString() || 0}</p>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">Acquire New Lead</h4>
-                    <form 
-                      onSubmit={async (e) => {
+                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">Log Additional Spend</h4>
+                    <form onSubmit={async (e) => {
                         e.preventDefault();
                         const formData = new FormData(e.target);
-                        const leadData = {
-                          name: formData.get('name'),
-                          contact: formData.get('contact')
-                        };
-                        const { success } = await addLeadFromCampaign(selectedCampaign.id, leadData);
-                        if (success) {
-                          e.target.reset();
-                          fetchMarketingData();
-                        }
-                      }}
-                      className="space-y-4 p-6 bg-blue-600/5 border border-blue-500/10 rounded-2xl"
-                    >
+                        const { success, error } = await logAdSpend(selectedCampaign.id, formData.get('amount'), formData.get('note'));
+                        if (success) { e.target.reset(); fetchMarketingData(); alert('Ad spend logged!'); }
+                        else alert('Error: ' + error);
+                      }} className="p-6 bg-gradient-to-br from-red-600/5 to-transparent border border-red-500/10 rounded-2xl space-y-4">
+                       <div className="flex gap-4">
+                          <div className="flex-1 space-y-1">
+                             <label className="text-[9px] font-bold text-gray-500 uppercase tracking-tight">Amount (₹)</label>
+                             <input name="amount" type="number" required className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-red-500/50 outline-none" placeholder="0" />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                             <label className="text-[9px] font-bold text-gray-500 uppercase tracking-tight">Note</label>
+                             <input name="note" className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-red-500/50 outline-none" placeholder="Details..." />
+                          </div>
+                       </div>
+                       <button type="submit" className="w-full py-3 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest border border-red-500/20 transition-all">Submit_Financial_Flux</button>
+                    </form>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">Acquire New Lead</h4>
+                    <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.target);
+                        const { success } = await addLeadFromCampaign(selectedCampaign.id, { name: formData.get('name'), contact: formData.get('contact') });
+                        if (success) { e.target.reset(); fetchMarketingData(); }
+                      }} className="space-y-4 p-6 bg-blue-600/5 border border-blue-500/10 rounded-2xl">
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-gray-500 uppercase tracking-tight">Lead Name</label>
                         <input name="name" required className="w-full bg-black border border-[#1f1f1f] rounded-xl py-3 px-4 text-xs focus:border-blue-500/50 outline-none" placeholder="Target Name" />
@@ -863,7 +854,6 @@ export default function MarketingPage() {
                   </div>
                 </div>
 
-                {/* Right: Lead List */}
                 <div className="space-y-4">
                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
                       <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Captured Leadstream</h4>

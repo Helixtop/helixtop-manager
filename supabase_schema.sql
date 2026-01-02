@@ -82,6 +82,7 @@ CREATE TABLE public.transactions (
     category TEXT, -- Salary, Project Payment, Ad Spend, etc.
     amount DECIMAL(10, 2) NOT NULL,
     date DATE DEFAULT CURRENT_DATE,
+    notes TEXT,
     reference_id UUID, -- Link to lead (for income) or profile/salary (for expense)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
