@@ -211,14 +211,18 @@ export default function TeamPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+            <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-4">
                <div>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Weekly_Activity</p>
-                  <p className="text-sm font-mono font-bold text-white">{formatDuration(emp.stats?.weeklySeconds)}</p>
+                  <p className="text-xs font-mono font-bold text-white">{formatDuration(emp.stats?.weeklySeconds)}</p>
+               </div>
+               <div className="text-center">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Active Projects</p>
+                  <p className="text-xs font-bold text-blue-400">{emp.stats?.projectCount || 0}</p>
                </div>
                <div className="text-right">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Unpaid_Balance</p>
-                  <p className={cn("text-sm font-mono font-bold", (emp.stats?.pendingPayment || 0) > 0 ? "text-green-400" : "text-gray-600")}>
+                  <p className={cn("text-xs font-mono font-bold", (emp.stats?.pendingPayment || 0) > 0 ? "text-green-400" : "text-gray-600")}>
                      ₹{(emp.stats?.pendingPayment || 0).toLocaleString()}
                   </p>
                </div>

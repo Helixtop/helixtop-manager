@@ -35,7 +35,8 @@ import {
   createAdCampaign,
   addLeadFromCampaign,
   updateAdCampaign,
-  logAdSpend
+  logAdSpend,
+  generateMarketingContext
 } from './actions';
 import { supabase } from '@/lib/supabase';
 import './marketing.css';
@@ -43,6 +44,20 @@ import './marketing.css';
 export default function MarketingPage() {
   const { profile } = useAuth();
   const [date, setDate] = useState(new Date());
+
+  // AI State
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiType, setAiType] = useState('Reel');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+
+  const handleAIExecute = async () => {
+    if(!aiTopic) return;
+    setAiGenerating(true);
+    const result = await generateMarketingContext(aiTopic, aiType, 'Social Media', '');
+    setAiResult(result);
+    setAiGenerating(false);
+  };
   const [activeTab, setActiveTab] = useState('calendar');
   const [contentItems, setContentItems] = useState([]);
   const [adsData, setAdsData] = useState([]);
@@ -72,8 +87,16 @@ export default function MarketingPage() {
   }, [profile, activeTab]);
 
   const fetchCreators = async () => {
-    const { success, data } = await getContentCreators();
-    if (success) setCreators(data);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .eq('role', 'Digital Content Creator');
+
+      if (!error) setCreators(data || []);
+    } catch (err) {
+      console.error('Error fetching creators:', err);
+    }
   };
 
   useEffect(() => {
@@ -141,21 +164,44 @@ export default function MarketingPage() {
     if (!profile) return;
     setLoading(true);
     try {
-      const { success, content, ads, workingDays: days, configs: cfg, leads: serverLeads, error } = await getMarketingData(profile.id, profile.role);
+      const sharedRoles = ['Admin', 'Digital Content Creator'];
+      let contentQuery = supabase.from('marketing_content').select('*').order('scheduled_date', { ascending: true });
       
-      if (!success) throw new Error(error);
+      if (profile.role && !sharedRoles.includes(profile.role)) {
+          contentQuery = contentQuery.eq('assigned_to', profile.id);
+      }
 
+      const [
+        { data: content, error: cError },
+        { data: ads, error: aError },
+        { data: workingDaysData, error: wError },
+        { data: configsData, error: configError },
+        { data: leadsData, error: leadError }
+      ] = await Promise.all([
+        contentQuery,
+        supabase.from('ad_campaigns').select('*').order('created_at', { ascending: false }),
+        supabase.from('working_days').select('date').order('date', { ascending: true }),
+        supabase.from('marketing_configs').select('*'),
+        supabase.from('leads').select('*')
+      ]);
+
+      if (cError) throw cError;
+      if (aError) throw aError;
+
+      const configMap = configsData?.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {}) || {};
+
+      setConfigs(configMap);
+      setAdsData(ads || []);
+      setLeads(leadsData || []);
+      setWorkingDays(workingDaysData?.map(d => d.date) || []);
+      
       // Deserialize dates
-      const parsedContent = content.map(item => ({
+      const parsedContent = (content || []).map(item => ({
         ...item,
         date: new Date(item.scheduled_date)
       }));
 
       setContentItems(parsedContent);
-      setAdsData(ads);
-      setLeads(serverLeads || []);
-      setWorkingDays(days);
-      setConfigs(cfg || {});
 
     } catch (error) {
       console.error('Error fetching marketing data:', error);
@@ -358,12 +404,70 @@ export default function MarketingPage() {
                   <h3 className="font-bold text-[10px] uppercase tracking-widest text-blue-400">Content AI Helper</h3>
                 </div>
                 <p className="text-xs text-gray-400 leading-relaxed mb-6 font-medium">
-                  I'm ready to architect your next viral strategy. Feed me a topic.
+                  {aiResult ? "Here is your generated concept:" : "I'm ready to architect your next viral strategy. Feed me a topic."}
                 </p>
-                <div className="space-y-3">
-                  <input type="text" placeholder="Topic: SEO Tips for 2026" className="w-full bg-black border border-[#1f1f1f] rounded-xl px-4 py-3 text-xs outline-none focus:border-blue-500/50" />
-                  <button className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-blue-600/20">Execute Generation</button>
-                </div>
+                
+                {!aiResult ? (
+                    <div className="space-y-3">
+                    <input 
+                        type="text" 
+                        value={aiTopic}
+                        onChange={(e) => setAiTopic(e.target.value)}
+                        placeholder="Topic: SEO Tips for 2026" 
+                        className="w-full bg-black border border-[#1f1f1f] rounded-xl px-4 py-3 text-xs outline-none focus:border-blue-500/50" 
+                    />
+                    <select 
+                        value={aiType}
+                        onChange={(e) => setAiType(e.target.value)}
+                        className="w-full bg-black border border-[#1f1f1f] rounded-xl px-4 py-3 text-xs outline-none focus:border-blue-500/50 text-gray-300"
+                    >
+                        <option value="Reel">Reel / TikTok Script</option>
+                        <option value="Poster">Poster / Graphic Concept</option>
+                        <option value="Carousel">Carousel Outline</option>
+                        <option value="Story">Story Sequence</option>
+                    </select>
+                    <button 
+                        onClick={handleAIExecute}
+                        disabled={aiGenerating || !aiTopic}
+                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-blue-600/20 disabled:opacity-50 flex justify-center gap-2"
+                    >
+                        {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Execute Generation"}
+                    </button>
+                    </div>
+                ) : (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                        <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                            <h4 className="text-sm font-bold text-white">{aiResult.title}</h4>
+                            <p className="text-[10px] text-blue-400 italic">"{aiResult.hook}"</p>
+                            <div className="text-xs text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar border-t border-white/5 pt-2 mt-2">
+                                {aiResult.script || JSON.stringify(aiResult)}
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => {
+                                    setAiResult(null);
+                                    setAiTopic('');
+                                }}
+                                className="flex-1 py-2 rounded-lg bg-gray-800 text-xs font-bold uppercase tracking-wider text-gray-400"
+                            >
+                                Clear
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setShowAddModal(true);
+                                    // Pre-fill logic could go here if we lifted state up or used a context, 
+                                    // but for now let's just copy to clipboard
+                                    navigator.clipboard.writeText(`${aiResult.title}\n\n${aiResult.script}`);
+                                    alert("Copied to clipboard! You can paste it into 'Add Content'.");
+                                }}
+                                className="flex-1 py-2 rounded-lg bg-blue-600 text-xs font-bold uppercase tracking-wider text-white"
+                            >
+                                Use Content
+                            </button>
+                        </div>
+                    </div>
+                )}
               </div>
             </div>
 

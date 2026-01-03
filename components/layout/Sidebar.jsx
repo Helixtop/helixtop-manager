@@ -45,13 +45,12 @@ export default function Sidebar({ isOpen, onClose }) {
       // 1. Check Admin Only
       if (item.adminOnly && !isAdmin) return false;
       
-      // 2. Check Developer/Creator Restrictions
-      const restrictedRoles = ['Developer', 'Digital Content Creator'];
-      if (restrictedRoles.includes(effectiveRole) && !isAdmin) {
-          const alwaysHidden = ['Sales', 'AI Pricing', 'Accounting'];
-          if (alwaysHidden.includes(item.name)) return false;
+      // 2. Role-based Visibility Adjustments
+      if (!isAdmin) {
+          const alwaysHiddenForNonAdmins = ['Sales', 'AI Pricing', 'Accounting'];
+          if (alwaysHiddenForNonAdmins.includes(item.name)) return false;
           
-          // Role specific logic
+          // Developer specific: Hide Marketing
           if (effectiveRole === 'Developer' && item.name === 'Marketing') return false;
       }
       

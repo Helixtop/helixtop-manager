@@ -41,8 +41,9 @@ import {
   Loader2,
   IndianRupee
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
-import { getLeads, createLead, updateLeadStage, closeDeal, updateLead, generatePriceEstimate, addPayment, getLeadDetails, getEmployees } from './actions';
+import { createLead, updateLeadStage, closeDeal, updateLead, generatePriceEstimate, addPayment, getLeadDetails } from './actions';
 
 const Confetti = () => (
   <div className="fixed inset-0 pointer-events-none z-[200] overflow-hidden flex justify-between items-end px-20 pb-0">
@@ -146,6 +147,7 @@ export default function SalesPage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [editFormData, setEditFormData] = useState({});
   const [isGeneratingPrice, setIsGeneratingPrice] = useState(false);
+  const [aiEstimate, setAiEstimate] = useState(null);
   const [selectedLead, setSelectedLead] = useState(null);
 
 
@@ -183,16 +185,37 @@ export default function SalesPage() {
   }, []);
 
   const fetchEmployees = async () => {
-    const { success, data } = await getEmployees();
-    if (success) setEmployees(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .order('full_name');
+        
+      if (error) throw error;
+      setEmployees(data || []);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    }
   };
 
   const fetchLeads = async () => {
     setLoading(true);
     try {
-      const { data, error } = await getLeads();
-      if (error) throw new Error(error);
-      setLeads(data || []);
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*, profiles:assigned_to(full_name)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      // Serialize dates locally
+      const serialized = (data || []).map(lead => ({
+        ...lead,
+        created_at: lead.created_at ? new Date(lead.created_at).toISOString() : null,
+        meeting_time: lead.meeting_time ? new Date(lead.meeting_time).toISOString() : null,
+      }));
+
+      setLeads(serialized);
     } catch (error) {
       console.error('Error fetching leads:', error);
     } finally {
@@ -718,7 +741,7 @@ export default function SalesPage() {
                           setIsGeneratingPrice(true);
                           const estimate = await generatePriceEstimate(editFormData.description);
                           setIsGeneratingPrice(false);
-                          alert(`Suggested: ₹${estimate.price}\nTimeline: ${estimate.timeline}`);
+                          setAiEstimate(estimate);
                        }}
                        disabled={isGeneratingPrice}
                        className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[9px] font-bold uppercase hover:bg-purple-500 hover:text-white transition-all"
@@ -727,6 +750,31 @@ export default function SalesPage() {
                        AI_Estimate
                      </button>
                    </div>
+
+                   {aiEstimate && (
+                        <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 mb-3 animate-in fade-in slide-in-from-top-1">
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h4 className="text-[10px] uppercase tracking-widest text-purple-400 font-bold">AI Recommended Price</h4>
+                                    <p className="text-xl font-bold font-mono text-white">₹{aiEstimate.price.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <h4 className="text-[10px] uppercase tracking-widest text-purple-400 font-bold">Timeline</h4>
+                                    <p className="text-sm font-bold text-white">{aiEstimate.timeline}</p>
+                                </div>
+                            </div>
+                            <div className="text-[10px] text-zinc-400 leading-relaxed italic border-t border-purple-500/10 pt-2">
+                                {aiEstimate.breakdown}
+                            </div>
+                            <button 
+                                onClick={() => setAiEstimate(null)}
+                                className="w-full mt-3 py-1.5 rounded-lg bg-zinc-800 text-[9px] font-bold uppercase text-zinc-500 hover:text-zinc-300 transition-all"
+                            >
+                                Clear Analysis
+                            </button>
+                        </div>
+                    )}
+
                    <textarea 
                      value={editFormData.description} 
                      onChange={e => setEditFormData({...editFormData, description: e.target.value})}

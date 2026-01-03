@@ -86,3 +86,37 @@ export async function updateProjectStatus(projectId, status) {
         return { success: false, error: error.message };
     }
 }
+
+export async function updateProjectDetails(projectId, updates) {
+    try {
+        const { error } = await supabaseAdmin
+            .from('projects')
+            .update(updates)
+            .eq('id', projectId);
+
+        if (error) throw error;
+
+        revalidatePath('/projects');
+        revalidatePath('/');
+        return { success: true };
+    } catch (error) {
+        console.error('updateProjectDetails Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getProjectLogs(projectId) {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('time_logs')
+            .select('*, profiles:user_id(full_name), tasks:task_id(title)')
+            .eq('project_id', projectId)
+            .order('start_time', { ascending: false });
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error) {
+        console.error('getProjectLogs Error:', error);
+        return { success: false, error: error.message };
+    }
+}

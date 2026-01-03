@@ -363,3 +363,14 @@ export async function logAdSpend(id, amount, note = "") {
         return { success: false, error: error.message };
     }
 }
+
+import { generateMarketingContentAI } from '@/lib/gemini';
+
+export async function generateMarketingContext(topic, type, platform, brief) {
+  try {
+    return await generateMarketingContentAI(topic, type, platform, brief);
+  } catch (error) {
+    console.error("AI Marketing Error:", error);
+    return null;
+  }
+}

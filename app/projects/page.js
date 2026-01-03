@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Briefcase, 
   Plus, 
@@ -24,9 +24,10 @@ import { ROLES } from '@/lib/roles';
 import { getProjects, createProject, deleteProject, updateProjectStatus } from './actions';
 import { migrateTasksToProjects } from '@/app/actions';
 import { supabase } from '@/lib/supabase';
+import ProjectDetail from '@/components/projects/ProjectDetail';
 
 export default function ProjectsPage() {
-  const { isAdmin, profile } = useAuth();
+  const { isAdmin, profile, loading: authLoading, user } = useAuth();
   const [projects, setProjects] = useState([]);
   const [marketingWorks, setMarketingWorks] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -34,27 +35,32 @@ export default function ProjectsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProject, setSelectedProject] = useState(null);
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetchData();
-    }
-  }, [isAdmin]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
-      const [pRes, eRes, mRes] = await Promise.all([
-        getProjects(),
+      let projectsData;
+      if (isAdmin) {
+        const res = await getProjects();
+        projectsData = res.success ? res.data : [];
+      } else {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*, profiles:assigned_to(full_name)')
+          .eq('assigned_to', user.id)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        projectsData = data;
+      }
+      
+      const [eRes, mRes] = await Promise.all([
         supabase.from('profiles').select('id, full_name, role').order('full_name'),
         supabase.from('marketing_content').select('*, profiles:assigned_to(full_name)').order('scheduled_date', { ascending: false })
       ]);
 
-      if (pRes.success) {
-        setProjects(pRes.data);
-      } else {
-        alert("Database Error: " + pRes.error + "\n\nDid you run the create_projects_table.sql script?");
-      }
+      setProjects(projectsData || []);
       if (!eRes.error) setEmployees(eRes.data);
       if (!mRes.error) setMarketingWorks(mRes.data || []);
 
@@ -63,7 +69,13 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user, isAdmin, fetchData]);
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
@@ -97,15 +109,23 @@ export default function ProjectsPage() {
     p.profiles?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (!isAdmin) return null; // Simplified for now
+  if (authLoading) return (
+    <div className="min-h-screen bg-black flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-3xl font-bold text-white uppercase tracking-tight">Project Registry</h2>
-          <p className="text-gray-500 mt-1 uppercase text-[10px] font-bold tracking-widest">Master Project Controller</p>
+          <h2 className="text-3xl font-bold text-white uppercase tracking-tight">
+            {isAdmin ? 'Project Registry' : 'My Projects'}
+          </h2>
+          <p className="text-gray-500 mt-1 uppercase text-[10px] font-bold tracking-widest">
+            {isAdmin ? 'Master Project Controller' : 'Operational Workspace'}
+          </p>
         </div>
         <div className="flex gap-4">
           <div className="relative group">
@@ -118,13 +138,15 @@ export default function ProjectsPage() {
               className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-xl py-2.5 pl-10 pr-4 text-xs font-bold uppercase tracking-widest focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all w-64"
             />
           </div>
-          <button 
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition-all text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20"
-          >
-            <Plus className="w-4 h-4" />
-            Initialize Project
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition-all text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20"
+            >
+              <Plus className="w-4 h-4" />
+              Initialize Project
+            </button>
+          )}
         </div>
       </div>
 
@@ -151,12 +173,14 @@ export default function ProjectsPage() {
                     <h3 className="text-sm font-bold text-gray-200 group-hover:text-blue-400 transition-colors uppercase tracking-tight line-clamp-1">{project.name}</h3>
                     <p className="text-[10px] text-gray-600 font-mono mt-1">ID: {project.id.split('-')[0]}</p>
                   </div>
-                  <button 
-                    onClick={() => handleDeleteProject(project.id, project.name)}
-                    className="p-2 rounded-lg hover:bg-red-500/10 text-gray-700 hover:text-red-500 transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => handleDeleteProject(project.id, project.name)}
+                      className="p-2 rounded-lg hover:bg-red-500/10 text-gray-700 hover:text-red-500 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
                 <p className="text-xs text-gray-500 line-clamp-2 h-8 leading-relaxed">
@@ -194,7 +218,10 @@ export default function ProjectsPage() {
                     <option value="completed">COMPLETED</option>
                     <option value="verified">VERIFIED</option>
                   </select>
-                  <button className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg py-2 px-3 text-[9px] font-black uppercase tracking-widest transition-all">
+                  <button 
+                    onClick={() => setSelectedProject(project)}
+                    className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg py-2 px-3 text-[9px] font-black uppercase tracking-widest transition-all"
+                  >
                     View_Detail
                     <ChevronRight className="w-3 h-3" />
                   </button>
@@ -320,6 +347,20 @@ export default function ProjectsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Project Detail Modal */}
+      {selectedProject && (
+        <ProjectDetail 
+          project={selectedProject}
+          employees={employees}
+          isAdmin={isAdmin}
+          currentUser={user}
+          onClose={() => setSelectedProject(null)}
+          onRefresh={() => {
+            fetchData();
+          }}
+        />
       )}
     </div>
   );

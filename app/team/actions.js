@@ -121,14 +121,16 @@ export async function getEmployees() {
         { data: monthlyLogs },
         { data: weeklyLogs },
         { data: taskStats },
-        { data: marketingContent }
+        { data: marketingContent },
+        { data: projectStats }
     ] = await Promise.all([
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').eq('is_paid', false),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').eq('is_paid', true),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfMonth),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfWeekStr),
         supabaseAdmin.from('tasks').select('id, title, assigned_to, status, submission_link').order('created_at', { ascending: false }),
-        supabaseAdmin.from('marketing_content').select('id, title, platform, status, assigned_to, scheduled_date, admin_feedback')
+        supabaseAdmin.from('marketing_content').select('id, title, platform, status, assigned_to, scheduled_date, admin_feedback'),
+        supabaseAdmin.from('projects').select('id, name, assigned_to, status')
     ]);
 
     // 3. Aggregate data
@@ -159,6 +161,7 @@ export async function getEmployees() {
       const completedWorks = userMarketingContent.filter(c => c.status === 'posted' || c.status === 'approved');
       const pendingWorks = userMarketingContent.filter(c => !['posted', 'approved', 'rejected'].includes(c.status));
       const rejectedWorks = userMarketingContent.filter(c => c.status === 'rejected');
+      const assignedProjects = (projectStats || []).filter(p => p.assigned_to === profile.id);
 
       const unpaidSeconds = calcSeconds(unpaid);
       const paidSeconds = calcSeconds(paid);
@@ -182,10 +185,12 @@ export async function getEmployees() {
              // Marketing work statistics
              completedWorks: completedWorks,
              pendingWorks: pendingWorks,
-             rejectedWorks: rejectedWorks,
-             completedWorksCount: completedWorks.length,
-             pendingWorksCount: pendingWorks.length,
-             rejectedWorksCount: rejectedWorks.length
+              rejectedWorks: rejectedWorks,
+              completedWorksCount: completedWorks.length,
+              pendingWorksCount: pendingWorks.length,
+              rejectedWorksCount: rejectedWorks.length,
+              assignedProjects: assignedProjects,
+              projectCount: assignedProjects.length
         }
       };
     });

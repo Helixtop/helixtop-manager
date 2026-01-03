@@ -59,14 +59,78 @@ export default function Home() {
   const fetchAdminStats = async () => {
     setLoading(true);
     try {
-      const { success, stats, teamMembers: members, marketingReview: mReview, reviewTasks: rTasks, error } = await getDashboardMetrics();
-      
-      if (!success) throw new Error(error);
+      // Parallel fetch for speed
+      const [
+        { data: projects, error: pError },
+        { data: tasks, error: tError },
+        { data: marketing, error: mError },
+        { data: transactions, error: txError },
+        { data: profiles, error: profError }
+      ] = await Promise.all([
+        supabase.from('projects').select('*'),
+        supabase.from('tasks').select('*, profiles:assigned_to(full_name)'),
+        supabase.from('marketing_content').select('*, profiles:assigned_to(full_name)'),
+        supabase.from('transactions').select('*'),
+        supabase.from('profiles').select('*, time_logs(*)')
+      ]);
 
-      setStats(stats);
-      setTeamMembers(members || []);
-      setMarketingReview(mReview || []);
-      setReviewTasks(rTasks || []);
+      if (pError) throw pError;
+      if (tError) throw tError;
+      if (mError) throw mError;
+
+      // 1. Basic Stats
+      const totalProjects = projects?.length || 0;
+      const pendingTasks = tasks?.filter(t => t.status === 'pending' || t.status === 'in_progress').length || 0;
+      const completedWork = (tasks?.filter(t => t.status === 'verified').length || 0) + 
+                            (marketing?.filter(m => m.status === 'verified').length || 0);
+      
+      // Monthly Profit calculation
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0,0,0,0);
+      const monthlyProfit = transactions
+        ?.filter(tx => new Date(tx.created_at) >= startOfMonth)
+        ?.reduce((sum, tx) => sum + (tx.type === 'income' ? tx.amount : -tx.amount), 0) || 0;
+
+      setStats({
+        totalProjects,
+        pendingTasks,
+        completedWork,
+        monthlyProfit
+      });
+
+      // 2. Review Items
+      setMarketingReview(marketing?.filter(m => m.status === 'pending_admin') || []);
+      setReviewTasks(tasks?.filter(t => t.status === 'completed') || []);
+
+      // 3. Team Highlights
+      const members = profiles?.map(p => {
+        const weeklySeconds = p.time_logs
+          ?.filter(log => {
+             const logDate = new Date(log.created_at);
+             const now = new Date();
+             const weekAgo = new Date(now.setDate(now.getDate() - 7));
+             return logDate >= weekAgo;
+          })
+          ?.reduce((sum, log) => sum + (log.duration || 0), 0) || 0;
+
+        return {
+          id: p.id,
+          full_name: p.full_name,
+          role: p.role,
+          weeklySeconds,
+          projectCount: projects?.filter(proj => proj.assigned_to === p.id).length || 0,
+          assignedProjects: projects?.filter(proj => proj.assigned_to === p.id).map(proj => ({ name: proj.name })),
+          workStats: {
+            completed: (tasks?.filter(t => t.assigned_to === p.id && t.status === 'verified').length || 0) + 
+                       (marketing?.filter(m => m.assigned_to === p.id && m.status === 'verified').length || 0),
+            pending: (tasks?.filter(t => t.assigned_to === p.id && (t.status === 'pending' || t.status === 'in_progress')).length || 0),
+            rejected: tasks?.filter(t => t.assigned_to === p.id && t.status === 'rejected').length || 0
+          }
+        };
+      }) || [];
+      
+      setTeamMembers(members);
 
     } catch (error) {
       console.error('Error fetching admin stats:', error);

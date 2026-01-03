@@ -288,11 +288,38 @@ export default function EmployeeDetail({ employee, onClose, onRefresh, onEditSal
             </div>
           </div>
 
+          {/* Major Project Assignments Section */}
+          {employee.stats?.assignedProjects?.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                <Briefcase className="w-4 h-4" />
+                Major_Project_Assignments
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-2 custom-scrollbar">
+                {employee.stats.assignedProjects.map(project => (
+                  <div key={project.id} className="p-4 rounded-2xl bg-blue-600/5 border border-blue-500/10 hover:border-blue-500/30 transition-all group relative overflow-hidden">
+                    <div className="relative z-10">
+                       <p className="text-xs font-black text-white uppercase tracking-tight truncate">{project.name}</p>
+                       <div className="flex items-center justify-between mt-2">
+                          <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                             {project.status || 'Active'}
+                          </span>
+                       </div>
+                    </div>
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                       <Briefcase className="w-8 h-8 text-blue-500" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Projects / Recent Activity Section */}
           <div className="space-y-4">
             <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-blue-500" />
-              Project_Workstream
+              <Clock className="w-4 h-4 text-blue-500" />
+              Recent_Workstream
             </h4>
             <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
               {employee.stats?.recentTasks?.length > 0 ? (

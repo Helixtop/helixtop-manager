@@ -125,32 +125,17 @@ export async function updateLead(id, updates) {
   }
 }
 
-import { generateContent } from '@/lib/gemini';
+import { generatePriceEstimateAI } from '@/lib/gemini';
 
 export async function generatePriceEstimate(scope) {
   try {
-    const prompt = `
-      You are a professional project estimator. 
-      Analyze the following project scope and provide a realistic price estimate in Indian Rupees (INR) and a timeline in weeks.
-      Return the response ONLY as a JSON object with the following structure:
-      {
-        "price": number,
-        "timeline": "string",
-        "breakdown": "string"
-      }
-      
-      Scope: "${scope}"
-    `;
-
-    const rawResponse = await generateContent(prompt);
-    // Sanitize response (Gemini sometimes wraps in ```json)
-    const jsonString = rawResponse.replace(/```json|```/g, '').trim();
-    const estimate = JSON.parse(jsonString);
+    // Call the AI Edge Function via our helper
+    const estimate = await generatePriceEstimateAI(scope);
 
     return {
-      price: estimate.price || 0,
-      timeline: estimate.timeline || 'TBD',
-      breakdown: estimate.breakdown || 'Analysis complete.'
+        price: estimate.price || 0,
+        timeline: estimate.timeline || 'TBD',
+        breakdown: estimate.breakdown || 'AI Analysis Complete.'
     };
   } catch (error) {
     console.error('Gemini Price Estimation Error:', error);
@@ -158,7 +143,7 @@ export async function generatePriceEstimate(scope) {
     return {
       price: 25000,
       timeline: "2-4 Weeks",
-      breakdown: "Note: AI analysis failed, provide manual assessment."
+      breakdown: "Note: AI service unavailable. Manual assessment required."
     };
   }
 }

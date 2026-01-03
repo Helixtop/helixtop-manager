@@ -11,13 +11,16 @@ import {
   Activity,
   Megaphone,
   Calendar,
-  Briefcase
+  Briefcase,
+  Folder
 } from 'lucide-react';
-import { getPendingWorks } from './actions';
+import { supabase } from '@/lib/supabase';
+// import { getPendingWorks } from './actions'; // Removed server action dependency
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import WorkList from '@/components/pending-works/WorkList';
 import WorkKanban from '@/components/pending-works/WorkKanban';
+import ProjectDetail from '@/components/projects/ProjectDetail';
 
 export default function PendingWorksPage() {
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
@@ -26,11 +29,13 @@ export default function PendingWorksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all'); // 'all', 'Marketing', 'Meeting', 'Project'
   const [isMobile, setIsMobile] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [originalProjects, setOriginalProjects] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const { user, isAdmin, loading: authLoading } = useAuth();
 
   useEffect(() => {
-    fetchWorks();
-    
+    // Only run initial setup, preventing double fetch if auth changes
     const checkMobile = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
@@ -47,11 +52,125 @@ export default function PendingWorksPage() {
   const fetchWorks = async () => {
     if (!user) return;
     setLoading(true);
-    const result = await getPendingWorks(isAdmin ? null : user.id);
-    if (result.success) {
-      setWorks(result.data);
+
+    try {
+      // Logic moved from Server Action to Client to utilize Auth Session directly
+      // This allows it to work without SUPABASE_SERVICE_ROLE_KEY on the server
+      
+      let tasksQuery = supabase
+        .from('tasks')
+        .select('*, profiles:assigned_to(full_name)')
+        .in('status', ['pending', 'in-progress', 'under-review', 'completed', 'rejected']);
+
+      let marketingQuery = supabase
+        .from('marketing_content')
+        .select('*, profiles:assigned_to(full_name)')
+        .in('status', ['planned', 'shot', 'edited', 'admin-review', 'rejected', 'under-review', 'completed', 'approved']);
+
+      let leadsQuery = supabase
+        .from('leads')
+        .select('*, profiles:assigned_to(full_name)')
+        .eq('stage', 'meeting-booked');
+
+      let projectsQuery = supabase
+        .from('projects')
+        .select('*, profiles:assigned_to(full_name)')
+        .in('status', ['pending', 'in-progress', 'on-hold', 'completed']);
+
+      // Filter for non-admins (Employees)
+      if (!isAdmin) {
+        tasksQuery = tasksQuery.eq('assigned_to', user.id);
+        marketingQuery = marketingQuery.eq('assigned_to', user.id);
+        leadsQuery = leadsQuery.eq('assigned_to', user.id);
+        projectsQuery = projectsQuery.eq('assigned_to', user.id);
+      }
+
+      const [
+        { data: tasks, error: tasksError },
+        { data: marketing, error: marketingError },
+        { data: leads, error: leadsError },
+        { data: projects, error: projectsError },
+        { data: profiles, error: profilesError }
+      ] = await Promise.all([
+        tasksQuery,
+        marketingQuery,
+        leadsQuery,
+        projectsQuery,
+        supabase.from('profiles').select('id, full_name, role').order('full_name')
+      ]);
+
+      if (tasksError) throw tasksError;
+      if (marketingError) throw marketingError;
+      if (leadsError) throw leadsError;
+      if (projectsError) throw projectsError;
+      if (profilesError) throw profilesError;
+
+      setOriginalProjects(projects || []);
+      setEmployees(profiles || []);
+
+      // Normalize data
+      const normalizedTasks = (tasks || []).map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        status: t.status,
+        type: 'Task',
+        assigned_to: t.profiles?.full_name,
+        deadline: t.deadline,
+        created_at: t.created_at,
+        original_type: 'task'
+      }));
+
+      const normalizedMarketing = (marketing || []).map(m => ({
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        status: m.status,
+        type: 'Marketing',
+        assigned_to: m.profiles?.full_name,
+        deadline: m.scheduled_date,
+        created_at: m.created_at,
+        original_type: 'marketing'
+      }));
+
+      const normalizedLeads = (leads || []).map(l => ({
+        id: l.id,
+        title: l.name,
+        description: l.description,
+        status: 'Meeting',
+        type: 'Meeting',
+        assigned_to: l.profiles?.full_name,
+        deadline: l.meeting_time,
+        created_at: l.created_at,
+        metadata: { budget: l.budget, contact: l.contact }
+      }));
+
+      const normalizedProjects = (projects || []).map(p => ({
+        id: p.id,
+        title: p.name,
+        description: p.description,
+        status: p.status,
+        type: 'Project',
+        assigned_to: p.profiles?.full_name,
+        deadline: p.deadline,
+        created_at: p.created_at,
+      }));
+
+      setWorks([
+        ...normalizedTasks, 
+        ...normalizedMarketing, 
+        ...normalizedLeads,
+        ...normalizedProjects
+      ].sort((a, b) => 
+        new Date(a.deadline || a.created_at) - new Date(b.deadline || b.created_at)
+      ));
+
+    } catch (error) {
+      console.error("Error fetching works:", error);
+      // alert("Failed to load works. Please checking your connection.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -72,9 +191,10 @@ export default function PendingWorksPage() {
 
   const categories = [
     { id: 'all', name: 'All_Flux', icon: Activity, color: 'text-blue-400' },
+    { id: 'Project', name: 'Projects', icon: Folder, color: 'text-blue-400' },
     { id: 'Marketing', name: 'Growth', icon: Megaphone, color: 'text-orange-400' },
     { id: 'Meeting', name: 'Syncs', icon: Calendar, color: 'text-purple-400' },
-    { id: 'Project', name: 'Tasks', icon: Briefcase, color: 'text-blue-400' },
+    { id: 'Task', name: 'Tasks', icon: Briefcase, color: 'text-blue-400' },
   ];
 
   return (
@@ -156,15 +276,46 @@ export default function PendingWorksPage() {
         </div>
       ) : filteredWorks.length > 0 ? (
         viewMode === 'kanban' && !isMobile ? (
-          <WorkKanban works={filteredWorks} />
+          <WorkKanban 
+            works={filteredWorks} 
+            isAdmin={isAdmin}
+            onRefresh={fetchWorks}
+            onViewDetail={(id) => {
+              const proj = originalProjects.find(p => p.id === id);
+              if (proj) setSelectedProject(proj);
+            }}
+          />
         ) : (
-          <WorkList works={filteredWorks} />
+          <WorkList 
+            works={filteredWorks} 
+            isAdmin={isAdmin}
+            onRefresh={fetchWorks}
+            onViewDetail={(id) => {
+              const proj = originalProjects.find(p => p.id === id);
+              if (proj) setSelectedProject(proj);
+            }}
+          />
         )
       ) : (
         <div className="flex flex-col items-center justify-center p-20 border-2 border-dashed border-[#1f1f1f] rounded-3xl bg-[#0a0a0a]/50">
           <Activity className="w-12 h-12 text-gray-800 mb-4 opacity-20" />
           <p className="text-[10px] text-gray-600 font-black uppercase tracking-[0.3em]">No Flux Records Detected</p>
         </div>
+      )}
+
+      {/* Project Detail Modal */}
+      {selectedProject && (
+        <ProjectDetail 
+          project={selectedProject}
+          employees={employees}
+          onClose={() => setSelectedProject(null)}
+          onRefresh={() => {
+            fetchWorks();
+            setSelectedProject(null);
+          }}
+          isAdmin={isAdmin}
+          currentUser={user}
+        />
       )}
     </div>
   );
