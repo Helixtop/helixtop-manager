@@ -13,7 +13,12 @@ import {
   UserCircle,
   Loader2,
   Megaphone,
-  ChevronRight
+  ChevronRight,
+  Edit,
+  Trash2,
+  X,
+  Save,
+  XCircle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import StatCard from '@/components/dashboard/StatCard';
@@ -22,7 +27,7 @@ import EmployeeDashboard from '@/components/dashboard/EmployeeDashboard';
 import { ROLES } from '@/lib/roles';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
-import { getDashboardMetrics, verifyTask } from './actions';
+import { getDashboardMetrics, verifyTask, deleteMarketingContent, updateMarketingContentDetails } from './actions';
 
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import IncomeGraph from '@/components/dashboard/IncomeGraph';
@@ -37,11 +42,12 @@ export default function Home() {
     completedWork: 0,
     monthlyProfit: 0
   });
-  const [leads, setLeads] = useState([]);
-  const [activeEmployees, setActiveEmployees] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [marketingReview, setMarketingReview] = useState([]);
   const [reviewTasks, setReviewTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editingContent, setEditingContent] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
   const router = useRouter();
 
   useEffect(() => {
@@ -53,13 +59,12 @@ export default function Home() {
   const fetchAdminStats = async () => {
     setLoading(true);
     try {
-      const { success, stats, leads, activeEmployees, marketingReview: mReview, reviewTasks: rTasks, error } = await getDashboardMetrics();
+      const { success, stats, teamMembers: members, marketingReview: mReview, reviewTasks: rTasks, error } = await getDashboardMetrics();
       
       if (!success) throw new Error(error);
 
       setStats(stats);
-      setLeads(leads);
-      setActiveEmployees(activeEmployees);
+      setTeamMembers(members || []);
       setMarketingReview(mReview || []);
       setReviewTasks(rTasks || []);
 
@@ -68,6 +73,52 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteContent = async (contentId) => {
+    if (!confirm('Are you sure you want to delete this marketing content?')) return;
+    
+    try {
+      const { success, error } = await deleteMarketingContent(contentId);
+      if (!success) throw new Error(error);
+      
+      fetchAdminStats();
+    } catch (error) {
+      alert('Failed to delete content: ' + error.message);
+    }
+  };
+
+  const handleEditContent = (content) => {
+    setEditingContent(content.id);
+    setEditFormData({
+      title: content.title,
+      description: content.description,
+      platform: content.platform,
+      scheduled_date: content.scheduled_date
+    });
+  };
+
+  const handleSaveEdit = async (contentId) => {
+    try {
+      const formData = new FormData();
+      Object.keys(editFormData).forEach(key => {
+        formData.append(key, editFormData[key]);
+      });
+      
+      const { success, error } = await updateMarketingContentDetails(contentId, formData);
+      if (!success) throw new Error(error);
+      
+      setEditingContent(null);
+      setEditFormData({});
+      fetchAdminStats();
+    } catch (error) {
+      alert('Failed to update content: ' + error.message);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingContent(null);
+    setEditFormData({});
   };
 
   const AdminView = () => (
@@ -260,69 +311,108 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Recent Activity / Bottom Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Lead Stats */}
-            <div className="p-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl relative overflow-hidden group">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h3 className="text-lg font-bold">New Leads</h3>
-                  <p className="text-sm text-gray-500">Pipeline growth this week</p>
-                </div>
-                <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                  <Target className="w-5 h-5 text-blue-400" />
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                {leads.map((lead) => (
-                  <div key={lead.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600/20 to-purple-600/20 flex items-center justify-center font-bold text-blue-400">
-                        {lead.name[0]}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm text-gray-200 uppercase tracking-tight">{lead.name}</p>
-                        <p className="text-[10px] text-gray-500 font-medium">{lead.type} • {lead.stage}</p>
-                      </div>
-                    </div>
-                    <button className="p-2 rounded-lg hover:bg-white/10 text-gray-400">
-                      <ArrowUpRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Quick Actions / Active Members */}
+          {/* Team Overview Section */}
+          <div className="grid grid-cols-1 gap-8">
             <div className="p-6 bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl">
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Team Overview</h3>
-                  <p className="text-sm text-gray-500">Resource allocation status</p>
+                  <p className="text-sm text-gray-500">Working hours & project allocation</p>
                 </div>
-                <div className="p-2 rounded-xl bg-green-500/10 border border-green-500/20">
-                  <Zap className="w-5 h-5 text-green-400" />
+                <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                  <UserCircle className="w-5 h-5 text-blue-400" />
                 </div>
               </div>
 
               <div className="space-y-4">
-                {activeEmployees.map((emp, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center font-bold text-xs text-blue-400">
-                        {emp.full_name?.split(' ').map(n => n[0]).join('')}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{emp.full_name}</p>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-tighter">{emp.role}</p>
+                {teamMembers.length > 0 ? teamMembers.map((member, idx) => {
+                  const hours = Math.floor(member.weeklySeconds / 3600);
+                  const minutes = Math.floor((member.weeklySeconds % 3600) / 60);
+                  const timeDisplay = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                  
+                  return (
+                    <div key={idx} onClick={() => router.push('/team')} className="group p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-blue-500/30 transition-all cursor-pointer">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-3 flex-1">
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-blue-500/30 flex items-center justify-center font-bold text-sm text-blue-400 group-hover:scale-110 transition-transform">
+                            {member.full_name?.split(' ').map(n => n[0]).join('')}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-bold text-white">{member.full_name}</p>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase tracking-wider">
+                                {member.role}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4 text-[10px] text-gray-500">
+                              <div className="flex items-center gap-1.5">
+                                <Clock className="w-3 h-3 text-green-500" />
+                                <span className="font-bold text-green-400">{timeDisplay}</span>
+                                <span className="uppercase font-medium tracking-wider">This Week</span>
+                              </div>
+                              {member.projectCount > 0 && (
+                                <>
+                                  <span>•</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <Briefcase className="w-3 h-3 text-blue-500" />
+                                    <span className="font-bold text-blue-400">{member.projectCount}</span>
+                                    <span className="uppercase font-medium tracking-wider">Active {member.projectCount === 1 ? 'Project' : 'Projects'}</span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            {/* Work Statistics */}
+                            {member.workStats && (member.workStats.completed > 0 || member.workStats.pending > 0 || member.workStats.rejected > 0) && (
+                              <div className="mt-2 flex items-center gap-3 text-[9px]">
+                                {member.workStats.completed > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-green-400" />
+                                    <span className="font-bold text-green-400">{member.workStats.completed}</span>
+                                    <span className="text-gray-500 uppercase font-medium">Done</span>
+                                  </div>
+                                )}
+                                {member.workStats.pending > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-orange-400" />
+                                    <span className="font-bold text-orange-400">{member.workStats.pending}</span>
+                                    <span className="text-gray-500 uppercase font-medium">Pending</span>
+                                  </div>
+                                )}
+                                {member.workStats.rejected > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <XCircle className="w-3 h-3 text-red-400" />
+                                    <span className="font-bold text-red-400">{member.workStats.rejected}</span>
+                                    <span className="text-gray-500 uppercase font-medium">Rejected</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {member.assignedProjects && member.assignedProjects.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {member.assignedProjects.slice(0, 3).map((proj, pidx) => (
+                                  <span key={pidx} className="px-2 py-1 rounded-lg bg-black/50 border border-white/10 text-[9px] font-medium text-gray-300 uppercase tracking-wide">
+                                    {proj.name}
+                                  </span>
+                                ))}
+                                {member.assignedProjects.length > 3 && (
+                                  <span className="px-2 py-1 rounded-lg bg-black/50 border border-white/10 text-[9px] font-medium text-gray-500 uppercase tracking-wide">
+                                    +{member.assignedProjects.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-green-400 animate-pulse uppercase font-black">Online</p>
-                    </div>
+                  );
+                }) : (
+                  <div className="py-12 text-center border-2 border-dashed border-[#1f1f1f] rounded-2xl">
+                    <UserCircle className="w-12 h-12 text-gray-800 mb-4 mx-auto opacity-20" />
+                    <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest">No team members found</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -331,7 +421,7 @@ export default function Home() {
       <CreateProjectModal 
         isOpen={showProjectModal} 
         onClose={() => setShowProjectModal(false)} 
-        employees={activeEmployees} 
+        employees={teamMembers} 
       />
     </div>
   );

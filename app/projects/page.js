@@ -15,7 +15,8 @@ import {
   AlertCircle,
   Loader2,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Megaphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -27,6 +28,7 @@ import { supabase } from '@/lib/supabase';
 export default function ProjectsPage() {
   const { isAdmin, profile } = useAuth();
   const [projects, setProjects] = useState([]);
+  const [marketingWorks, setMarketingWorks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,9 +44,10 @@ export default function ProjectsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [pRes, eRes] = await Promise.all([
+      const [pRes, eRes, mRes] = await Promise.all([
         getProjects(),
-        supabase.from('profiles').select('id, full_name, role').order('full_name')
+        supabase.from('profiles').select('id, full_name, role').order('full_name'),
+        supabase.from('marketing_content').select('*, profiles:assigned_to(full_name)').order('scheduled_date', { ascending: false })
       ]);
 
       if (pRes.success) {
@@ -53,6 +56,7 @@ export default function ProjectsPage() {
         alert("Database Error: " + pRes.error + "\n\nDid you run the create_projects_table.sql script?");
       }
       if (!eRes.error) setEmployees(eRes.data);
+      if (!mRes.error) setMarketingWorks(mRes.data || []);
 
     } catch (error) {
       console.error('Fetch Projects Data Error:', error);

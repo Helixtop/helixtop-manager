@@ -120,13 +120,15 @@ export async function getEmployees() {
         { data: allPaidLogs },
         { data: monthlyLogs },
         { data: weeklyLogs },
-        { data: taskStats }
+        { data: taskStats },
+        { data: marketingContent }
     ] = await Promise.all([
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').eq('is_paid', false),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').eq('is_paid', true),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfMonth),
         supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfWeekStr),
-        supabaseAdmin.from('tasks').select('id, title, assigned_to, status, submission_link').order('created_at', { ascending: false })
+        supabaseAdmin.from('tasks').select('id, title, assigned_to, status, submission_link').order('created_at', { ascending: false }),
+        supabaseAdmin.from('marketing_content').select('id, title, platform, status, assigned_to, scheduled_date, admin_feedback')
     ]);
 
     // 3. Aggregate data
@@ -152,6 +154,12 @@ export async function getEmployees() {
       const weekly = (weeklyLogs || []).filter(l => l.user_id === profile.id);
       const tasks = (taskStats || []).filter(t => t.assigned_to === profile.id);
 
+      // Filter marketing content for this employee
+      const userMarketingContent = (marketingContent || []).filter(c => c.assigned_to === profile.id);
+      const completedWorks = userMarketingContent.filter(c => c.status === 'posted' || c.status === 'approved');
+      const pendingWorks = userMarketingContent.filter(c => !['posted', 'approved', 'rejected'].includes(c.status));
+      const rejectedWorks = userMarketingContent.filter(c => c.status === 'rejected');
+
       const unpaidSeconds = calcSeconds(unpaid);
       const paidSeconds = calcSeconds(paid);
       
@@ -170,7 +178,14 @@ export async function getEmployees() {
              recentTasks: recentTasks,
              pendingTasks: tasks.filter(t => t.status !== 'verified').length,
              pendingPayment: Math.round((unpaidSeconds / 3600) * hourlyRate),
-             totalPaidEstimated: Math.round((paidSeconds / 3600) * hourlyRate)
+             totalPaidEstimated: Math.round((paidSeconds / 3600) * hourlyRate),
+             // Marketing work statistics
+             completedWorks: completedWorks,
+             pendingWorks: pendingWorks,
+             rejectedWorks: rejectedWorks,
+             completedWorksCount: completedWorks.length,
+             pendingWorksCount: pendingWorks.length,
+             rejectedWorksCount: rejectedWorks.length
         }
       };
     });

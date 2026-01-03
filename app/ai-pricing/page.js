@@ -22,25 +22,59 @@ export default function AIPricingPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState(null);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!brief) return;
     setIsGenerating(true);
-    // Simulate AI Generation
-    setTimeout(() => {
+    
+    try {
+      // Import the server action
+      const { generatePriceEstimate } = await import('@/app/sales/actions');
+      
+      // Call Gemini API
+      const estimate = await generatePriceEstimate(brief);
+      
+      // Parse the estimate into the result format
       setResult({
-        recommendedPrice: '₹12,50,000 - ₹15,00,000',
-        confidence: 94,
-        timeline: '8-10 Weeks',
+        recommendedPrice: `₹${(estimate.price * 0.9).toLocaleString('en-IN')} - ₹${(estimate.price * 1.1).toLocaleString('en-IN')}`,
+        confidence: 92,
+        timeline: estimate.timeline,
+        breakdown: estimate.breakdown ? 
+          estimate.breakdown.split('\n').filter(line => line.trim()).map((line, idx) => {
+            // Try to extract cost from breakdown line
+            const match = line.match(/₹?([\d,]+)/);
+            const cost = match ? parseInt(match[1].replace(/,/g, '')) : Math.floor(estimate.price /  4);
+            return {
+              item: line.split(':')[0] || `Component ${idx + 1}`,
+              hours: Math.floor(cost / 5000),
+              cost: cost
+            };
+          }).slice(0, 4) : 
+          [
+            { item: 'UI/UX Design', hours: Math.floor(estimate.price * 0.15 / 5000), cost: Math.floor(estimate.price * 0.15) },
+            { item: 'Frontend Development', hours: Math.floor(estimate.price * 0.35 / 5000), cost: Math.floor(estimate.price * 0.35) },
+            { item: 'Backend & API', hours: Math.floor(estimate.price * 0.35 / 5000), cost: Math.floor(estimate.price * 0.35) },
+            { item: 'QA & Deployment', hours: Math.floor(estimate.price * 0.15 / 5000), cost: Math.floor(estimate.price * 0.15) },
+          ],
+        strategy: estimate.breakdown || "AI-powered analysis based on project scope, complexity, and current market rates."
+      });
+    } catch (error) {
+      console.error('Pricing generation error:', error);
+      // Fallback to mock data if API fails
+      setResult({
+        recommendedPrice: '₹10,00,000 - ₹12,00,000',
+        confidence: 85,
+        timeline: '6-8 Weeks',
         breakdown: [
-          { item: 'UI/UX Design', hours: 40, cost: 200000 },
-          { item: 'Frontend Development', hours: 120, cost: 600000 },
-          { item: 'Backend & API', hours: 80, cost: 400000 },
+          { item: 'UI/UX Design', hours: 40, cost: 180000 },
+          { item: 'Frontend Development', hours: 100, cost: 500000 },
+          { item: 'Backend & API', hours: 60, cost: 300000 },
           { item: 'QA & Deployment', hours: 20, cost: 100000 },
         ],
-        strategy: "Focus on a premium dark-themed aesthetic with complex micro-interactions. The competitive edge lies in the integrated AI forecasting module which justifies a 20% premium over market average."
+        strategy: `Error: ${error.message}. Showing fallback estimate - please check your Gemini API configuration.`
       });
+    } finally {
       setIsGenerating(false);
-    }, 2000);
+    }
   };
 
   return (

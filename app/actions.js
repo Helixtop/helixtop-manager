@@ -4,14 +4,23 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function getDashboardMetrics() {
   try {
+    // Calculate week start
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const startOfWeekStr = startOfWeek.toISOString();
+
     const [
       { count: totalTasks },
       { count: totalProjects },
       { count: pending },
       { count: verified },
       { data: transactions },
-      { data: leads },
       { data: profiles },
+      { data: weeklyLogs },
+      { data: assignedProjects },
+      { data: marketingContent },
       { data: marketingReview },
       { data: reviewTasks }
     ] = await Promise.all([
@@ -20,14 +29,64 @@ export async function getDashboardMetrics() {
       supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true }).in('status', ['pending', 'in-progress']),
       supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'verified'),
       supabaseAdmin.from('transactions').select('amount, type'),
-      supabaseAdmin.from('leads').select('*').limit(3).order('created_at', { ascending: false }),
-      supabaseAdmin.from('profiles').select('id, full_name, role').limit(5),
+      supabaseAdmin.from('profiles').select('id, full_name, role').neq('role', 'Admin'),
+      supabaseAdmin.from('time_logs').select('user_id, duration, start_time, end_time').gte('start_time', startOfWeekStr),
+      supabaseAdmin.from('projects').select('id, name, assigned_to, status').neq('status', 'completed'),
+      supabaseAdmin.from('marketing_content').select('*').neq('status', 'posted').neq('status', 'approved'),
       supabaseAdmin.from('marketing_content').select('*, profiles:assigned_to(full_name)').eq('status', 'admin-review').limit(5),
       supabaseAdmin.from('tasks').select('*, profiles:assigned_to(full_name)').eq('status', 'completed').order('created_at', { ascending: false })
     ]);
 
     const income = transactions?.filter(t => t.type === 'income').reduce((acc, curr) => acc + parseFloat(curr.amount), 0) || 0;
     const expense = transactions?.filter(t => t.type === 'expense').reduce((acc, curr) => acc + parseFloat(curr.amount), 0) || 0;
+
+    // Get all marketing content for statistics
+    const { data: allMarketingContent } = await supabaseAdmin
+      .from('marketing_content')
+      .select('assigned_to, status');
+
+    // Process team members with working hours, projects, and marketing content
+    const teamMembers = (profiles || []).map(profile => {
+      // Calculate weekly working hours
+      const userWeeklyLogs = (weeklyLogs || []).filter(log => log.user_id === profile.id);
+      const weeklySeconds = userWeeklyLogs.reduce((acc, curr) => {
+        let dur = Number(curr.duration) || 0;
+        // Include live sessions
+        if (!curr.end_time && curr.start_time) {
+          const start = new Date(curr.start_time).getTime();
+          const nowTime = Date.now();
+          const activeDur = Math.max(0, Math.floor((nowTime - start) / 1000));
+          dur += activeDur;
+        }
+        return acc + dur;
+      }, 0);
+
+      // Get assigned projects
+      const userProjects = (assignedProjects || []).filter(proj => proj.assigned_to === profile.id);
+
+      // Get pending marketing content
+      const userMarketingContent = (marketingContent || []).filter(content => content.assigned_to === profile.id);
+
+      // Calculate work statistics from all marketing content
+      const allUserContent = (allMarketingContent || []).filter(content => content.assigned_to === profile.id);
+      const completedWork = allUserContent.filter(c => c.status === 'posted' || c.status === 'approved').length;
+      const pendingWork = allUserContent.filter(c => !['posted', 'approved', 'rejected'].includes(c.status)).length;
+      const rejectedWork = allUserContent.filter(c => c.status === 'rejected').length;
+
+      return {
+        ...profile,
+        weeklySeconds,
+        assignedProjects: userProjects.map(p => ({ id: p.id, name: p.name, status: p.status })),
+        projectCount: userProjects.length,
+        pendingMarketing: userMarketingContent,
+        marketingCount: userMarketingContent.length,
+        workStats: {
+          completed: completedWork,
+          pending: pendingWork,
+          rejected: rejectedWork
+        }
+      };
+    });
 
     return {
       success: true,
@@ -37,8 +96,7 @@ export async function getDashboardMetrics() {
         completedWork: verified || 0,
         monthlyProfit: income - expense
       },
-      leads: leads || [],
-      activeEmployees: profiles || [],
+      teamMembers: teamMembers,
       marketingReview: marketingReview || [],
       reviewTasks: reviewTasks || []
     };
@@ -208,6 +266,42 @@ export async function migrateTasksToProjects() {
     return { success: true, count: tasks.length };
   } catch (error) {
     console.error('Migration Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+export async function deleteMarketingContent(contentId) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('marketing_content')
+      .delete()
+      .eq('id', contentId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    console.error('Delete Marketing Content Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function updateMarketingContentDetails(contentId, formData) {
+  try {
+    const data = {
+      title: formData.get('title'),
+      description: formData.get('description'),
+      platform: formData.get('platform'),
+      scheduled_date: formData.get('scheduled_date')
+    };
+
+    const { error } = await supabaseAdmin
+      .from('marketing_content')
+      .update(data)
+      .eq('id', contentId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    console.error('Update Marketing Content Error:', error);
     return { success: false, error: error.message };
   }
 }

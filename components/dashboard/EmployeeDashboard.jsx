@@ -141,7 +141,6 @@ export default function EmployeeDashboard() {
       let query = supabase
         .from('marketing_content')
         .select('*')
-        .neq('status', 'posted')
         .order('scheduled_date', { ascending: true });
 
       // Only restrict by assignee if NOT a Content Creator
@@ -253,34 +252,42 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      {/* Marketing Notifications */}
-      {marketingWork.length > 0 && (
-         <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-            {marketingWork.map(work => (
-               <a 
-                href="/marketing" 
-                key={work.id}
-                className={cn(
-                  "flex-shrink-0 flex items-center gap-4 px-6 py-4 rounded-2xl border bg-gradient-to-br from-blue-600/10 to-green-600/5 transition-all hover:scale-[1.02] active:scale-[0.98] group shadow-xl",
-                  work.status === 'rejected' ? "border-red-500/30 from-red-500/10" : "border-blue-500/20"
-                )}
-               >
-                  <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center shadow-lg",
-                    work.status === 'rejected' ? "bg-red-500/20" : "bg-blue-500/20"
-                  )}>
-                    <Megaphone className={cn("w-5 h-5", work.status === 'rejected' ? "text-red-400" : "text-blue-400")} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">New_Work_Detected</p>
-                    <h4 className="font-bold text-sm text-white uppercase tracking-tight">
-                        {work.title} <span className="text-blue-400 text-[10px] ml-1">[{new Date(work.scheduled_date).toLocaleDateString()}]</span>
-                    </h4>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-600 group-hover:translate-x-1 transition-all" />
-               </a>
-            ))}
-         </div>
+      {/* Work Statistics for Content Creators */}
+      {isContentCreator && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-green-600/10 to-green-900/5 border border-green-500/20">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Completed Works</p>
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+            </div>
+            <p className="text-3xl font-black text-white font-mono">
+              {marketingWork.filter(w => w.status === 'posted' || w.status === 'approved').length}
+            </p>
+            <p className="text-[9px] text-gray-500 uppercase font-bold tracking-wider mt-1">Successfully delivered</p>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-orange-600/10 to-orange-900/5 border border-orange-500/20">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Pending Works</p>
+              <Clock className="w-5 h-5 text-orange-400" />
+            </div>
+            <p className="text-3xl font-black text-white font-mono">
+              {marketingWork.filter(w => !['posted', 'approved', 'rejected'].includes(w.status)).length}
+            </p>
+            <p className="text-[9px] text-gray-500 uppercase font-bold tracking-wider mt-1">In progress</p>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-red-600/10 to-red-900/5 border border-red-500/20">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Rejected Works</p>
+              <AlertCircle className="w-5 h-5 text-red-400" />
+            </div>
+            <p className="text-3xl font-black text-white font-mono">
+              {marketingWork.filter(w => w.status === 'rejected').length}
+            </p>
+            <p className="text-[9px] text-gray-500 uppercase font-bold tracking-wider mt-1">Needs revision</p>
+          </div>
+        </div>
       )}
 
       {loading ? (
@@ -289,149 +296,115 @@ export default function EmployeeDashboard() {
           <p className="text-gray-500 font-bold uppercase text-[9px] tracking-widest">Provisioning Tasks...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Task Folders */}
-          <div className="lg:col-span-4 space-y-4">
-            <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2">
-              {isContentCreator ? 'Marketing_Production_Queue' : 'Assigned_Projects'}
-            </h3>
-            <div className="space-y-3">
-              {(isContentCreator && marketingWork.length > 0 ? marketingWork : tasks).map((task) => {
-                 const isVerified = task.status === 'verified' || task.status === 'completed' || task.status === 'posted';
-                 const isRejected = task.status === 'rejected';
-                 const isSelected = selectedTask?.id === task.id;
-                 const isMarketing = !!task.platform; // Simple check
-
-                 return (
-                    <div 
-                      key={task.id}
-                      onClick={() => setSelectedTask(task)}
-                      className={cn(
-                        "p-4 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden shadow-xl",
-                        isSelected 
-                          ? "bg-blue-600/10 border-blue-500/30" 
-                          : isVerified 
-                            ? "bg-green-900/5 border-green-500/10 hover:border-green-500/30"
-                            : isRejected 
-                              ? "bg-red-900/5 border-red-500/10 hover:border-red-500/30"
-                              : "bg-[#0a0a0a] border-[#1f1f1f] hover:border-gray-700"
-                      )}
-                    >
-                      <div className="flex items-center gap-4 relative z-10">
-                        <div className={cn(
-                          "w-12 h-12 rounded-xl flex items-center justify-center transition-colors shadow-lg",
-                          isSelected ? "bg-blue-500/20" : 
-                          isVerified ? "bg-green-500/10" :
-                          isRejected ? "bg-red-500/10" :
-                          "bg-black group-hover:bg-white/5"
-                        )}>
-                          {isMarketing ? (
-                            <Megaphone className={cn(
-                              "w-6 h-6",
-                              isSelected ? "text-blue-400" : 
-                              isVerified ? "text-green-400" :
-                              isRejected ? "text-red-400" :
-                              "text-gray-600 group-hover:text-gray-400"
-                            )} />
-                          ) : (
-                            <Folder className={cn(
-                              "w-6 h-6",
-                              isSelected ? "text-blue-400" : 
-                              isVerified ? "text-green-400" :
-                              isRejected ? "text-red-400" :
-                              "text-gray-600 group-hover:text-gray-400"
-                            )} />
-                          )}
+        <div className="space-y-8">
+          {/* Pending/New Works Section - Middle */}
+          {marketingWork.filter(w => !['posted', 'approved', 'rejected'].includes(w.status)).length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5" />
+                Pending Works
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {marketingWork.filter(w => !['posted', 'approved', 'rejected'].includes(w.status)).map(work => (
+                  <div key={work.id} className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 hover:border-blue-500/40 transition-all group cursor-pointer" onClick={() => setSelectedTask(work)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                        <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                          <span className="uppercase font-bold">{work.platform}</span>
+                          <span>•</span>
+                          <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                          <span>•</span>
+                          <span className="text-blue-400 uppercase font-black">{work.status.replace('-', ' ')}</span>
                         </div>
-                        <div className="flex-1 overflow-hidden">
-                          <h4 className={cn(
-                              "font-bold text-sm truncate transition-colors uppercase tracking-tight",
-                              isSelected ? "text-white" : "text-gray-200 group-hover:text-white"
-                          )}>
-                            {task.title}
-                          </h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                             <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">
-                               {isMarketing ? `${task.platform} • ${new Date(task.scheduled_date).toLocaleDateString()}` : task.type}
-                             </p>
-                             {isVerified && <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>}
-                             {isRejected && <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>}
-                          </div>
-                        </div>
-                        <ChevronRight className={cn(
-                          "w-4 h-4 transition-all",
-                          isSelected ? "text-blue-400 translate-x-1" : "text-gray-800 group-hover:text-gray-400"
-                        )} />
                       </div>
+                      <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
                     </div>
-                 );
-              })}
-
-              {isContentCreator && tasks.length > 0 && (
-                <div className="pt-6 space-y-3">
-                   <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2">Other_Internal_Tasks</h3>
-                   {tasks.map(task => (
-                      <div 
-                        key={task.id}
-                        onClick={() => setSelectedTask(task)}
-                        className={cn(
-                          "p-4 rounded-xl border border-[#1f1f1f] bg-black/50 hover:border-gray-700 transition-all cursor-pointer flex items-center justify-between",
-                          selectedTask?.id === task.id && "border-blue-500/30 bg-blue-500/5"
-                        )}
-                      >
-                         <div className="flex items-center gap-3">
-                            <Folder className="w-4 h-4 text-gray-700" />
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-tight">{task.title}</span>
-                         </div>
-                         <ChevronRight className="w-3 h-3 text-gray-800" />
-                      </div>
-                   ))}
-                </div>
-              )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Task Detail View */}
-          <div className="lg:col-span-8">
-            {selectedTask ? (
-              <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-3xl p-8 shadow-2xl space-y-8 animate-in slide-in-from-right-4 duration-300">
+          {/* Rejected Works Section */}
+          {marketingWork.filter(w => w.status === 'rejected').length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Rejected Works - Needs Revision
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {marketingWork.filter(w => w.status === 'rejected').map(work => (
+                  <div key={work.id} className="p-4 rounded-xl bg-red-500/5 border border-red-500/20 hover:border-red-500/40 transition-all group cursor-pointer" onClick={() => setSelectedTask(work)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                        <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                          <span className="uppercase font-bold">{work.platform}</span>
+                          <span>•</span>
+                          <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                        </div>
+                        {work.admin_feedback && (
+                          <p className="text-[9px] text-red-400 mt-1 line-clamp-1 italic">"{work.admin_feedback}"</p>
+                        )}
+                      </div>
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Completed Works Section - Bottom */}
+          {marketingWork.filter(w => w.status === 'posted' || w.status === 'approved').length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-[10px] font-black text-green-400 uppercase tracking-widest flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Completed Works
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {marketingWork.filter(w => w.status === 'posted' || w.status === 'approved').map(work => (
+                  <div key={work.id} className="p-4 rounded-xl bg-green-500/5 border border-green-500/20 hover:border-green-500/40 transition-all group cursor-pointer" onClick={() => setSelectedTask(work)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                        <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                          <span className="uppercase font-bold">{work.platform}</span>
+                          <span>•</span>
+                          <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Task Detail View - Only shown when selectedTask exists */}
+          {selectedTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-3xl p-8 shadow-2xl space-y-8 animate-in slide-in-from-right-4 duration-300 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">{selectedTask.title}</h3>
                     <div className="flex items-center gap-3">
                       <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase tracking-widest border border-blue-500/20">
-                        {selectedTask.type}
+                        {selectedTask.type || selectedTask.platform}
                       </span>
                       <span className="px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase tracking-widest border border-orange-500/20">
                         {selectedTask.status}
                       </span>
                     </div>
                   </div>
-                  
-                  {/* Time Tracker Mini */}
-                  <div className="flex items-center gap-5 p-5 rounded-2xl bg-black border border-white/5 shadow-inner">
-                    <div className="text-right">
-                      <p className="text-xl font-mono font-black text-blue-400 tracking-tighter">{formatTime(time)}</p>
-                      <p className="text-[8px] text-gray-600 uppercase font-black tracking-widest text-right">Timer_Node_Active</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       {!isRunning ? (
-                          <button onClick={startTaskTimer} className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all shadow-lg shadow-blue-600/20">
-                            <Play className="w-5 h-5 fill-white text-white ml-0.5" />
-                          </button>
-                       ) : (
-                          <button onClick={handlePause} className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-500 flex items-center justify-center transition-all shadow-lg shadow-orange-600/20">
-                            <Pause className="w-5 h-5 fill-white text-white" />
-                          </button>
-                       )}
-                       
-                       {(isRunning || time > 0) && (
-                          <button onClick={handleStop} className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-all shadow-lg shadow-red-600/20">
-                            <Square className="w-4 h-4 fill-white text-white" />
-                          </button>
-                       )}
-                    </div>
-                  </div>
+                  <button 
+                    onClick={() => setSelectedTask(null)}
+                    className="p-2 rounded-xl hover:bg-white/10 transition-all"
+                  >
+                    <XCircle className="w-6 h-6 text-gray-500" />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -451,7 +424,7 @@ export default function EmployeeDashboard() {
                         Critical_Notes
                       </h4>
                       <p className="text-xs text-orange-200/60 leading-relaxed bg-orange-500/5 p-5 rounded-2xl border border-orange-500/10 uppercase tracking-tight font-black">
-                        {selectedTask.notes || 'No critical deviations logged.'}
+                        {selectedTask.notes || selectedTask.admin_feedback || 'No critical deviations logged.'}
                       </p>
                     </div>
                   </div>
@@ -634,13 +607,8 @@ export default function EmployeeDashboard() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center p-20 border-2 border-dashed border-[#1f1f1f] rounded-3xl opacity-30 bg-black/50 group hover:border-blue-500/20 transition-all">
-                <Folder className="w-20 h-20 text-gray-800 mb-6 group-hover:scale-110 transition-transform" />
-                <p className="text-gray-600 text-[10px] font-black uppercase tracking-[0.4em]">Select_Project_Archive</p>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

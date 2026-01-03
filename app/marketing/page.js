@@ -579,17 +579,33 @@ export default function MarketingPage() {
 
               <div className="space-y-1">
                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Master File (Drive Link)</label>
-                  <div className="relative">
+                  {profile?.role === ROLES.ADMIN ? (
+                    selectedItem.drive_link ? (
+                      <button
+                        type="button"
+                        onClick={() => window.open(selectedItem.drive_link, '_blank')}
+                        className="w-full bg-blue-600/10 border border-blue-500/20 rounded-xl py-3 px-4 text-xs font-bold text-blue-400 hover:bg-blue-600/20 transition-all flex items-center justify-center gap-2 uppercase tracking-wider"
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                        Click to Open Drive Link
+                      </button>
+                    ) : (
+                      <div className="w-full bg-white/5 border border-white/5 rounded-xl py-3 px-4 text-xs text-gray-600 text-center uppercase tracking-wider">
+                        No Link Submitted Yet
+                      </div>
+                    )
+                  ) : (
+                    <div className="relative">
                       <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                       <input 
                         type="url" 
                         name="drive_link"
                         defaultValue={selectedItem.drive_link}
-                        readOnly={profile?.role === ROLES.ADMIN}
                         placeholder="Pending Submission..." 
                         className="w-full bg-black border border-white/5 rounded-xl py-3 pl-10 pr-4 text-xs font-mono outline-none focus:border-blue-500/50" 
                       />
-                  </div>
+                    </div>
+                  )}
               </div>
 
               {selectedItem.admin_feedback && (

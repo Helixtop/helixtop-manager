@@ -328,6 +328,97 @@ export default function EmployeeDetail({ employee, onClose, onRefresh, onEditSal
               )}
             </div>
           </div>
+
+          {/* Marketing Content Works Section */}
+          {(employee.stats?.completedWorksCount > 0 || employee.stats?.pendingWorksCount > 0 || employee.stats?.rejectedWorksCount > 0) && (
+            <div className="space-y-6">
+              {/* Completed Works */}
+              {employee.stats?.completedWorks?.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold text-green-400 uppercase tracking-widest flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Completed_Works ({employee.stats.completedWorks.length})
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                    {employee.stats.completedWorks.map(work => (
+                      <div key={work.id} className="p-4 rounded-2xl bg-green-500/5 border border-green-500/20 hover:border-green-500/40 transition-all">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                              <span className="uppercase font-bold">{work.platform}</span>
+                              <span>•</span>
+                              <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                          <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending Works */}
+              {employee.stats?.pendingWorks?.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Pending_Works ({employee.stats.pendingWorks.length})
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                    {employee.stats.pendingWorks.map(work => (
+                      <div key={work.id} className="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/20 hover:border-blue-500/40 transition-all">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                              <span className="uppercase font-bold">{work.platform}</span>
+                              <span>•</span>
+                              <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                              <span>•</span>
+                              <span className="text-blue-400 uppercase font-black">{work.status.replace('-', ' ')}</span>
+                            </div>
+                          </div>
+                          <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Rejected Works */}
+              {employee.stats?.rejectedWorks?.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center gap-2">
+                    <XCircle className="w-4 h-4" />
+                    Rejected_Works ({employee.stats.rejectedWorks.length})
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                    {employee.stats.rejectedWorks.map(work => (
+                      <div key={work.id} className="p-4 rounded-2xl bg-red-500/5 border border-red-500/20 hover:border-red-500/40 transition-all">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{work.title}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-500">
+                              <span className="uppercase font-bold">{work.platform}</span>
+                              <span>•</span>
+                              <span>{new Date(work.scheduled_date).toLocaleDateString()}</span>
+                            </div>
+                            {work.admin_feedback && (
+                              <p className="text-[9px] text-red-400 mt-1 line-clamp-2 italic">"{work.admin_feedback}"</p>
+                            )}
+                          </div>
+                          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
